@@ -11,6 +11,7 @@ import (
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/domain"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/port"
+	"golang.org/x/net/html"
 )
 
 const (
@@ -19,7 +20,6 @@ const (
 )
 
 var (
-	sogouTitlePattern   = regexp.MustCompile(`vrcid="title[^"]*">\s*<a[^>]*>([^<]*?)号码查询服务`)
 	sogouBlockedPattern = regexp.MustCompile(`(?i)(antispider|window\.imgCode|验证码|访问频繁)`)
 )
 
@@ -51,15 +51,59 @@ func (p *sogouProvider) Lookup(ctx context.Context, phone string) (*port.Provide
 		return nil, rateLimitError(headers, errors.New("sogou anti-spider challenge"))
 	}
 
-	htmlBody := string(body)
-	match := sogouTitlePattern.FindStringSubmatch(htmlBody)
-	if len(match) < 2 || !strings.Contains(digitsOnly(htmlBody), digitsOnly(phone)) {
-		return nil, fmt.Errorf("%w: sogou response does not contain a matching phone card", domain.ErrUpstreamUnavailable)
+	label, err := parseSogouCard(body, phone)
+	if err != nil {
+		return nil, err
 	}
-	label := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(match[1]), "-"))
 	return &port.ProviderResult{
 		IsSpam: label != "",
 		Tag:    label,
 		Source: SogouSourceID,
 	}, nil
+}
+
+func parseSogouCard(body []byte, phone string) (string, error) {
+	root, err := html.Parse(strings.NewReader(string(body)))
+	if err != nil {
+		return "", fmt.Errorf("%w: parse sogou HTML", domain.ErrUpstreamUnavailable)
+	}
+	expectedDigits := digitsOnly(phone)
+	if expectedDigits == "" {
+		return "", fmt.Errorf("%w: invalid sogou query", domain.ErrUpstreamUnavailable)
+	}
+
+	matched := false
+	label := ""
+	walkHTML(root, func(node *html.Node) {
+		if matched || node.Type != html.ElementNode || !hasAttributePrefix(node, "vrcid", "title") {
+			return
+		}
+		title := nodeText(node)
+		titleEnd := strings.Index(title, "号码查询服务")
+		if titleEnd < 0 {
+			return
+		}
+		container := node.Parent
+		if container == nil || container.Data == "body" || container.Data == "html" {
+			return
+		}
+		if !strings.Contains(digitsOnly(nodeText(container)), expectedDigits) {
+			return
+		}
+		label = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(title[:titleEnd]), "-"))
+		matched = true
+	})
+	if !matched {
+		return "", fmt.Errorf("%w: sogou response does not contain a matching phone card", domain.ErrUpstreamUnavailable)
+	}
+	return label, nil
+}
+
+func hasAttributePrefix(node *html.Node, key, prefix string) bool {
+	for _, attribute := range node.Attr {
+		if attribute.Key == key && strings.HasPrefix(attribute.Val, prefix) {
+			return true
+		}
+	}
+	return false
 }

@@ -200,3 +200,49 @@ func TestQueuedLookupRechecksCircuitBeforeProviderCall(t *testing.T) {
 		t.Fatalf("provider calls = %d, want 3", got)
 	}
 }
+
+func TestInFlightSuccessDoesNotClearRetryAfterCooldown(t *testing.T) {
+	var calls atomic.Int32
+	started := make(chan int32, 2)
+	releaseRateLimit := make(chan struct{})
+	releaseSuccess := make(chan struct{})
+	runtime := newSourceRuntime(SourceConfig{
+		ID:            "test",
+		MaxConcurrent: 2,
+	}, lookupFunc(func(context.Context, string) (*port.ProviderResult, error) {
+		call := calls.Add(1)
+		started <- call
+		if call == 1 {
+			<-releaseRateLimit
+			return nil, &domain.RateLimitError{RetryAfter: time.Minute, Cause: errors.New("limited")}
+		}
+		<-releaseSuccess
+		return &port.ProviderResult{Source: "test"}, nil
+	}), port.NoopMetrics{})
+
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := runtime.lookup(context.Background(), "13800138000")
+			results <- err
+		}()
+	}
+	<-started
+	<-started
+	close(releaseRateLimit)
+	if err := <-results; !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("first completed error = %v", err)
+	}
+	close(releaseSuccess)
+	if err := <-results; err != nil {
+		t.Fatalf("second completed error = %v", err)
+	}
+
+	_, thirdErr := runtime.lookup(context.Background(), "13800138000")
+	if !errors.Is(thirdErr, domain.ErrRateLimited) {
+		t.Fatalf("third error = %v", thirdErr)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("provider calls = %d, want 2", got)
+	}
+}

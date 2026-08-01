@@ -145,6 +145,8 @@ type sourceRuntime struct {
 
 	stateMu             sync.Mutex
 	consecutiveFailures int
+	cooldownUntil       time.Time
+	cooldownErr         error
 	openUntil           time.Time
 	openErr             error
 }
@@ -216,6 +218,13 @@ func (r *sourceRuntime) waitForInterval(ctx context.Context) error {
 func (r *sourceRuntime) circuitError(now time.Time) error {
 	r.stateMu.Lock()
 	defer r.stateMu.Unlock()
+	if now.Before(r.cooldownUntil) {
+		return r.cooldownErr
+	}
+	if !r.cooldownUntil.IsZero() {
+		r.cooldownUntil = time.Time{}
+		r.cooldownErr = nil
+	}
 	if now.Before(r.openUntil) {
 		return r.openErr
 	}
@@ -233,8 +242,8 @@ func (r *sourceRuntime) recordFailure(now time.Time, err error) {
 	r.consecutiveFailures++
 	var rateLimit *domain.RateLimitError
 	if errors.As(err, &rateLimit) && rateLimit.RetryAfter > 0 {
-		r.openUntil = now.Add(rateLimit.RetryAfter)
-		r.openErr = err
+		r.cooldownUntil = now.Add(rateLimit.RetryAfter)
+		r.cooldownErr = err
 		return
 	}
 	if r.consecutiveFailures < breakerFailureLimit {
