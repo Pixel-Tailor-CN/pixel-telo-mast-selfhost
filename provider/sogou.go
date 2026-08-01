@@ -51,10 +51,12 @@ func (p *sogouProvider) Lookup(ctx context.Context, phone string) (*port.Provide
 		return nil, rateLimitError(headers, errors.New("sogou anti-spider challenge"))
 	}
 
-	label := ""
-	if match := sogouTitlePattern.FindStringSubmatch(string(body)); len(match) >= 2 {
-		label = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(match[1]), "-"))
+	htmlBody := string(body)
+	match := sogouTitlePattern.FindStringSubmatch(htmlBody)
+	if len(match) < 2 || !strings.Contains(digitsOnly(htmlBody), digitsOnly(phone)) {
+		return nil, fmt.Errorf("%w: sogou response does not contain a matching phone card", domain.ErrUpstreamUnavailable)
 	}
+	label := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(match[1]), "-"))
 	return &port.ProviderResult{
 		IsSpam: label != "",
 		Tag:    label,

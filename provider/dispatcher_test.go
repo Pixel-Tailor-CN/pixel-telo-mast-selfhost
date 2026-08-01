@@ -113,3 +113,90 @@ func TestNormalizeProviderErrorPreservesRateLimit(t *testing.T) {
 		t.Fatalf("error = %v", got)
 	}
 }
+
+func TestSourceRuntimeHonorsRetryAfterImmediately(t *testing.T) {
+	var calls atomic.Int32
+	runtime := newSourceRuntime(SourceConfig{
+		ID:             "test",
+		MaxConcurrent:  1,
+		BreakerTimeout: time.Second,
+	}, lookupFunc(func(context.Context, string) (*port.ProviderResult, error) {
+		calls.Add(1)
+		return nil, &domain.RateLimitError{RetryAfter: time.Minute, Cause: errors.New("limited")}
+	}), port.NoopMetrics{})
+
+	_, _ = runtime.lookup(context.Background(), "13800138000")
+	_, secondErr := runtime.lookup(context.Background(), "13800138000")
+	if !errors.Is(secondErr, domain.ErrRateLimited) {
+		t.Fatalf("second error = %v", secondErr)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("provider calls = %d, want 1", got)
+	}
+}
+
+func TestSourceRuntimeDoesNotCountClientCancellation(t *testing.T) {
+	var calls atomic.Int32
+	runtime := newSourceRuntime(SourceConfig{
+		ID:             "test",
+		MaxConcurrent:  1,
+		BreakerTimeout: time.Minute,
+	}, lookupFunc(func(context.Context, string) (*port.ProviderResult, error) {
+		calls.Add(1)
+		return nil, context.Canceled
+	}), port.NoopMetrics{})
+
+	for range 4 {
+		_, _ = runtime.lookup(context.Background(), "13800138000")
+	}
+	if got := calls.Load(); got != 4 {
+		t.Fatalf("provider calls = %d, want 4", got)
+	}
+}
+
+func TestCanceledIntervalWaitDoesNotReserveFutureSlot(t *testing.T) {
+	runtime := newSourceRuntime(SourceConfig{
+		ID:            "test",
+		MinInterval:   time.Minute,
+		MaxConcurrent: 1,
+	}, lookupFunc(func(context.Context, string) (*port.ProviderResult, error) {
+		return &port.ProviderResult{Source: "test"}, nil
+	}), port.NoopMetrics{})
+	if _, err := runtime.lookup(context.Background(), "13800138000"); err != nil {
+		t.Fatal(err)
+	}
+	firstStart := runtime.lastStart
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = runtime.lookup(ctx, "13800138000")
+	if !runtime.lastStart.Equal(firstStart) {
+		t.Fatalf("last start changed from %s to %s", firstStart, runtime.lastStart)
+	}
+}
+
+func TestQueuedLookupRechecksCircuitBeforeProviderCall(t *testing.T) {
+	var calls atomic.Int32
+	runtime := newSourceRuntime(SourceConfig{
+		ID:             "test",
+		MinInterval:    15 * time.Millisecond,
+		MaxConcurrent:  4,
+		BreakerTimeout: time.Minute,
+	}, lookupFunc(func(context.Context, string) (*port.ProviderResult, error) {
+		calls.Add(1)
+		return nil, errors.New("upstream failed")
+	}), port.NoopMetrics{})
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = runtime.lookup(context.Background(), "13800138000")
+		}()
+	}
+	wg.Wait()
+	if got := calls.Load(); got != 3 {
+		t.Fatalf("provider calls = %d, want 3", got)
+	}
+}

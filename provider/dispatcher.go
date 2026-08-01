@@ -172,6 +172,9 @@ func (r *sourceRuntime) lookup(ctx context.Context, phone string) (*port.Provide
 	if err := r.waitForInterval(ctx); err != nil {
 		return nil, err
 	}
+	if err := r.circuitError(time.Now()); err != nil {
+		return nil, err
+	}
 
 	startedAt := time.Now()
 	result, err := r.provider.Lookup(ctx, phone)
@@ -179,7 +182,9 @@ func (r *sourceRuntime) lookup(ctx context.Context, phone string) (*port.Provide
 	metricResult := "success"
 	if err != nil {
 		metricResult = providerMetricResult(err)
-		r.recordFailure(time.Now(), err)
+		if !errors.Is(err, context.Canceled) {
+			r.recordFailure(time.Now(), err)
+		}
 	} else {
 		r.recordSuccess()
 	}
@@ -189,25 +194,23 @@ func (r *sourceRuntime) lookup(ctx context.Context, phone string) (*port.Provide
 
 func (r *sourceRuntime) waitForInterval(ctx context.Context) error {
 	r.scheduleMu.Lock()
-	startAt := time.Now()
-	if earliest := r.lastStart.Add(r.config.MinInterval); earliest.After(startAt) {
-		startAt = earliest
+	defer r.scheduleMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	r.lastStart = startAt
-	r.scheduleMu.Unlock()
 
-	wait := time.Until(startAt)
-	if wait <= 0 {
-		return nil
+	wait := time.Until(r.lastStart.Add(r.config.MinInterval))
+	if wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	timer := time.NewTimer(wait)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	r.lastStart = time.Now()
+	return nil
 }
 
 func (r *sourceRuntime) circuitError(now time.Time) error {
@@ -228,11 +231,16 @@ func (r *sourceRuntime) recordFailure(now time.Time, err error) {
 	r.stateMu.Lock()
 	defer r.stateMu.Unlock()
 	r.consecutiveFailures++
+	var rateLimit *domain.RateLimitError
+	if errors.As(err, &rateLimit) && rateLimit.RetryAfter > 0 {
+		r.openUntil = now.Add(rateLimit.RetryAfter)
+		r.openErr = err
+		return
+	}
 	if r.consecutiveFailures < breakerFailureLimit {
 		return
 	}
 	duration := r.config.BreakerTimeout
-	var rateLimit *domain.RateLimitError
 	if errors.As(err, &rateLimit) && rateLimit.RetryAfter > duration {
 		duration = rateLimit.RetryAfter
 	}
