@@ -84,26 +84,35 @@ func firstLookupError(ctx context.Context, errMap map[string]error) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	var firstErr error
+	var (
+		firstErr    error
+		rateLimited bool
+		timedOut    bool
+		canceled    bool
+	)
 	for _, err := range errMap {
 		if err == nil {
 			continue
 		}
-		if errors.Is(err, domain.ErrRateLimited) {
-			return domain.ErrRateLimited
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			return domain.ErrUpstreamTimeout
-		}
-		if errors.Is(err, domain.ErrUpstreamTimeout) {
-			return domain.ErrUpstreamTimeout
-		}
-		if errors.Is(err, context.Canceled) {
-			return context.Canceled
-		}
-		if firstErr == nil {
+		switch {
+		case errors.Is(err, domain.ErrRateLimited):
+			rateLimited = true
+		case errors.Is(err, context.DeadlineExceeded), errors.Is(err, domain.ErrUpstreamTimeout):
+			timedOut = true
+		case errors.Is(err, context.Canceled):
+			canceled = true
+		case firstErr == nil:
 			firstErr = err
 		}
+	}
+	if rateLimited {
+		return domain.ErrRateLimited
+	}
+	if timedOut {
+		return domain.ErrUpstreamTimeout
+	}
+	if canceled {
+		return context.Canceled
 	}
 	if firstErr == nil {
 		return nil

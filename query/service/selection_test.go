@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/domain"
@@ -26,5 +28,18 @@ func TestSelectReadyResultDoesNotWaitForLowerPrioritySources(t *testing.T) {
 	got, ready := selectReadyResult([]string{"a", "b"}, records)
 	if got == nil || got.Source != "a" || !ready {
 		t.Fatalf("record/ready = %#v/%v", got, ready)
+	}
+}
+
+func TestFirstLookupErrorAlwaysPrioritizesRateLimitOverTimeout(t *testing.T) {
+	errs := map[string]error{
+		"a": domain.ErrRateLimited,
+		"b": domain.ErrUpstreamTimeout,
+	}
+	for range 1000 {
+		got := firstLookupError(context.Background(), errs)
+		if !errors.Is(got, domain.ErrRateLimited) {
+			t.Fatalf("error = %v, want ErrRateLimited", got)
+		}
 	}
 }
