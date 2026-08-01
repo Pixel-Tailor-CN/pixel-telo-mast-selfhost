@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"sync"
@@ -39,6 +40,8 @@ type Service struct {
 	defaultSources []string
 	enabledSources map[string]struct{}
 	asyncSaveCh    chan []*domain.Record
+	saveMu         sync.RWMutex
+	closed         bool
 	closeOnce      sync.Once
 	wg             sync.WaitGroup
 }
@@ -96,7 +99,10 @@ func New(repo port.QueryRepository, dispatcher port.ProviderDispatcher, metrics 
 // Close 排空并关闭异步写入器。
 func (s *Service) Close() error {
 	s.closeOnce.Do(func() {
+		s.saveMu.Lock()
+		s.closed = true
 		close(s.asyncSaveCh)
+		s.saveMu.Unlock()
 		s.wg.Wait()
 		slog.Info("query service async writer closed")
 	})
@@ -162,7 +168,7 @@ func (s *Service) lookupWithMode(ctx context.Context, phone string, requested, e
 			s.metrics.ObserveCache("miss")
 		default:
 			s.metrics.ObserveCache("error")
-			slog.Error("cache lookup failed", "error", cacheErr)
+			slog.Error("cache lookup failed", "error_type", errorType(cacheErr))
 		}
 	}
 
@@ -203,6 +209,10 @@ func (s *Service) lookupWithMode(ctx context.Context, phone string, requested, e
 		return newLookupResult(result, mode, requested, effective, invalid), nil
 	}
 	return nil, domain.ErrNotFound
+}
+
+func errorType(err error) string {
+	return fmt.Sprintf("%T", err)
 }
 
 func (s *Service) listCached(ctx context.Context, phone string, sources []string, mode domain.QueryMode) (map[string]*domain.Record, error) {

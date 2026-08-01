@@ -1,9 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +19,8 @@ import (
 type stubRepository struct {
 	records map[string][]*domain.Record
 	saved   chan []*domain.Record
+	listErr error
+	saveErr error
 }
 
 func (r *stubRepository) ListByPhone(_ context.Context, phone string) ([]*domain.Record, error) {
@@ -26,6 +32,9 @@ func (r *stubRepository) ListByPhoneAndSources(_ context.Context, phone string, 
 }
 
 func (r *stubRepository) list(phone string, sources []string) ([]*domain.Record, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
 	items := r.records[phone]
 	if len(items) == 0 {
 		return nil, domain.ErrNotFound
@@ -50,6 +59,9 @@ func (r *stubRepository) list(phone string, sources []string) ([]*domain.Record,
 }
 
 func (r *stubRepository) SaveBatch(_ context.Context, records []*domain.Record) error {
+	if r.saveErr != nil {
+		return r.saveErr
+	}
 	if r.saved != nil {
 		r.saved <- records
 	}
@@ -61,6 +73,19 @@ type stubDispatcher struct {
 	results map[string]*port.ProviderResult
 	errs    map[string]error
 	calls   []string
+}
+
+type blockingDispatcher struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (d *blockingDispatcher) LookupAll(_ context.Context, _ string, _ []string) (map[string]*port.ProviderResult, map[string]error) {
+	close(d.started)
+	<-d.release
+	return map[string]*port.ProviderResult{
+		"a": {Source: "a", IsSpam: true, Tag: "营销"},
+	}, nil
 }
 
 func (d *stubDispatcher) LookupAll(_ context.Context, _ string, sources []string) (map[string]*port.ProviderResult, map[string]error) {
@@ -234,6 +259,23 @@ func TestLookupPrioritizesRateLimitedError(t *testing.T) {
 	}
 }
 
+func TestLookupPreservesDomainTimeout(t *testing.T) {
+	dispatcher := &stubDispatcher{errs: map[string]error{"a": domain.ErrUpstreamTimeout}}
+	svc, err := New(&stubRepository{}, dispatcher, port.NoopMetrics{}, Options{
+		QueryTimeout:   2 * time.Second,
+		DefaultSources: []string{"a"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+
+	_, err = svc.Lookup(context.Background(), "13800138000")
+	if !errors.Is(err, domain.ErrUpstreamTimeout) {
+		t.Fatalf("error = %v, want ErrUpstreamTimeout", err)
+	}
+}
+
 func TestListSourcesReturnsConfiguredPriorityOrder(t *testing.T) {
 	svc, err := New(&stubRepository{}, &stubDispatcher{}, port.NoopMetrics{}, Options{
 		DefaultSources: []string{"a", "b", "a"},
@@ -249,5 +291,78 @@ func TestListSourcesReturnsConfiguredPriorityOrder(t *testing.T) {
 	}
 	if len(got.AvailableSources) != 2 || got.AvailableSources[1].Priority != 2 {
 		t.Fatalf("available sources = %#v", got.AvailableSources)
+	}
+}
+
+func TestRepositoryErrorsDoNotLeakPhoneToLogs(t *testing.T) {
+	const phone = "13800138000"
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(previousLogger)
+
+	repo := &stubRepository{
+		listErr: errors.New("query " + phone + " failed"),
+		saveErr: errors.New("insert " + phone + " failed"),
+	}
+	dispatcher := &stubDispatcher{results: map[string]*port.ProviderResult{
+		"a": {Source: "a", IsSpam: true, Tag: "营销"},
+	}}
+	svc, err := New(repo, dispatcher, port.NoopMetrics{}, Options{DefaultSources: []string{"a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Lookup(context.Background(), phone); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(logs.String(), phone) {
+		t.Fatalf("logs contain full phone: %s", logs.String())
+	}
+}
+
+func TestCloseDoesNotRaceWithInFlightLookup(t *testing.T) {
+	dispatcher := &blockingDispatcher{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	svc, err := New(&stubRepository{}, dispatcher, port.NoopMetrics{}, Options{DefaultSources: []string{"a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lookupDone := make(chan error, 1)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				lookupDone <- fmt.Errorf("lookup panic: %v", recovered)
+			}
+		}()
+		_, lookupErr := svc.Lookup(context.Background(), "13800138000")
+		lookupDone <- lookupErr
+	}()
+	<-dispatcher.started
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- svc.Close() }()
+	select {
+	case closeErr := <-closeDone:
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close did not return")
+	}
+
+	close(dispatcher.release)
+	select {
+	case lookupErr := <-lookupDone:
+		if lookupErr != nil {
+			t.Fatal(lookupErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Lookup did not return")
 	}
 }

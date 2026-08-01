@@ -95,6 +95,9 @@ func firstLookupError(ctx context.Context, errMap map[string]error) error {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return domain.ErrUpstreamTimeout
 		}
+		if errors.Is(err, domain.ErrUpstreamTimeout) {
+			return domain.ErrUpstreamTimeout
+		}
 		if errors.Is(err, context.Canceled) {
 			return context.Canceled
 		}
