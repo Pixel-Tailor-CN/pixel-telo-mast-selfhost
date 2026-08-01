@@ -1,6 +1,9 @@
 package domain
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 var (
 	// ErrNotFound 表示本地与上游均没有可用查询结论。
@@ -12,6 +15,24 @@ var (
 	// ErrUpstreamTimeout 表示上游查询超时。
 	ErrUpstreamTimeout = errors.New("upstream timeout")
 )
+
+// RateLimitError 携带上游建议的重试等待时间。
+type RateLimitError struct {
+	RetryAfter time.Duration
+	Cause      error
+}
+
+func (e *RateLimitError) Error() string {
+	if e == nil || e.Cause == nil {
+		return ErrRateLimited.Error()
+	}
+	return e.Cause.Error()
+}
+
+// Unwrap 使调用方可以通过 errors.Is 识别 ErrRateLimited。
+func (e *RateLimitError) Unwrap() error {
+	return ErrRateLimited
+}
 
 // QueryMode 表示请求实际采用的查询模式。
 type QueryMode string
