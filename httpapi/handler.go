@@ -1,0 +1,83 @@
+package httpapi
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/security"
+	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/service"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+)
+
+type Handler struct {
+	Service      *service.Service
+	Headers      security.ServerHeaders
+	Token        []byte
+	Limiter      *security.QueryLimiter
+	BuildCommit  string
+	Capabilities []string
+}
+
+func (h *Handler) Register(router *gin.Engine) {
+	if h.Limiter == nil {
+		h.Limiter = security.NewQueryLimiter(1, 5, 4)
+	}
+	router.GET("/api/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+	authenticated := router.Group("/api", h.Headers.Middleware(), security.Bearer(h.Token))
+	authenticated.GET("/selfhost/v1/info", h.info)
+	authenticated.GET("/v2/sources", h.sources)
+	queries := authenticated.Group("", h.Limiter.Middleware())
+	queries.GET("/v1/query", h.queryV1)
+	queries.POST("/v2/query", h.queryV2)
+}
+
+func (h *Handler) info(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"service": "pixel-telo-mast-selfhost", "version": h.Headers.Version, "api_version": 2, "instance_id": h.Headers.InstanceID, "build_commit": h.BuildCommit, "capabilities": h.Capabilities})
+}
+
+func (h *Handler) sources(c *gin.Context) { c.JSON(http.StatusOK, h.Service.ListSources()) }
+
+func (h *Handler) queryV1(c *gin.Context) {
+	phone := strings.TrimSpace(c.Query("number"))
+	if !validPhone(phone) {
+		h.writeError(c, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	record, err := h.Service.Lookup(c.Request.Context(), phone)
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, queryResponse{Record: &recordResponse{PhoneNumber: record.PhoneNumber, Tag: record.Tag, Source: record.Source, Confidence: record.Confidence}, QueryMode: "v1"})
+}
+
+type queryV2Request struct {
+	Number  string   `json:"number"`
+	Sources []string `json:"sources"`
+}
+
+func (h *Handler) queryV2(c *gin.Context) {
+	var request queryV2Request
+	if err := c.ShouldBindJSON(&request); err != nil || !validPhone(request.Number) {
+		h.writeError(c, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	result, err := h.Service.LookupWithSources(c.Request.Context(), request.Number, request.Sources)
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, makeQueryResponse(result))
+}
+
+func (h *Handler) writeServiceError(c *gin.Context, err error) {
+	status, code := errorStatus(err)
+	h.writeError(c, status, code)
+}
+
+func (h *Handler) writeError(c *gin.Context, status int, code string) {
+	requestID := uuid.NewString()
+	c.Header("X-Request-ID", requestID)
+	c.JSON(status, gin.H{"error": code, "code": code, "request_id": requestID})
+}

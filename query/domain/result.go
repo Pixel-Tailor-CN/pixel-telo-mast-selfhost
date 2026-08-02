@@ -54,12 +54,12 @@ type LookupResult struct {
 
 // SourceDescriptor 描述一个可用 source 及其默认优先级。
 type SourceDescriptor struct {
-	ID       string
-	Priority int
+	ID       string `json:"id"`
+	Priority int    `json:"priority"`
 }
 
 // SourceListResult 描述当前实例通过本地配置启用的 source。
 type SourceListResult struct {
-	DefaultSources   []string
-	AvailableSources []SourceDescriptor
+	DefaultSources   []string           `json:"default_sources"`
+	AvailableSources []SourceDescriptor `json:"available_sources"`
 }
