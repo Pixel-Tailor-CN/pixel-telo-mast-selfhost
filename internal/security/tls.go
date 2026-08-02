@@ -23,7 +23,7 @@ func PrepareTLS(cfg *config.Config) (*tls.Config, error) {
 	if cfg.TLS.Mode == "off" {
 		return nil, nil
 	}
-	certFile, keyFile := cfg.TLS.CertFile, cfg.TLS.KeyFile
+	certFile, keyFile := cfg.TLSFiles()
 	if cfg.TLS.Mode == "auto" {
 		if certFile == "" {
 			certFile = cfg.Storage.RuntimePath + ".crt"

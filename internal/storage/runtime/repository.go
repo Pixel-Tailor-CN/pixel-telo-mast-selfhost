@@ -19,6 +19,7 @@ import (
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/domain"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/port"
 	_ "github.com/glebarez/go-sqlite"
+	"github.com/google/uuid"
 )
 
 //go:embed migrations/*.sql
@@ -332,6 +333,22 @@ func (r *Repository) GetMetadata(ctx context.Context, key string) (string, error
 			return "", domain.ErrNotFound
 		}
 		return "", fmt.Errorf("get runtime metadata: %w", err)
+	}
+	return value, nil
+}
+
+// EnsureInstanceID 返回并持久化该实例唯一身份。
+func (r *Repository) EnsureInstanceID(ctx context.Context) (string, error) {
+	value, err := r.GetMetadata(ctx, "instance_id")
+	if err == nil && strings.TrimSpace(value) != "" {
+		return value, nil
+	}
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return "", err
+	}
+	value = uuid.NewString()
+	if err := r.SetMetadata(ctx, "instance_id", value); err != nil {
+		return "", err
 	}
 	return value, nil
 }

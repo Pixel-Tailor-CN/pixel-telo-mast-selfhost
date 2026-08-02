@@ -22,6 +22,17 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 
 func (d Duration) Std() time.Duration { return time.Duration(d) }
 
+func (c *Config) TLSFiles() (string, string) {
+	certFile, keyFile := c.TLS.CertFile, c.TLS.KeyFile
+	if certFile == "" {
+		certFile = c.Storage.RuntimePath + ".crt"
+	}
+	if keyFile == "" {
+		keyFile = c.Storage.RuntimePath + ".key"
+	}
+	return certFile, keyFile
+}
+
 type Config struct {
 	Server struct {
 		Listen string `yaml:"listen"`

@@ -30,7 +30,7 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	application, err := app.Build(app.Options{Config: cfg, Token: token, Version: version, Commit: commit, InstanceID: "local"})
+	application, err := app.Build(app.Options{Config: cfg, Token: token, Version: version, Commit: commit})
 	if err != nil {
 		return err
 	}

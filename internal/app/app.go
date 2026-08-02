@@ -49,6 +49,13 @@ func Build(options Options) (*App, error) {
 	}
 	baseStore := baseline.NewStore()
 	cleanup := func() { _ = baseStore.Close(); _ = runtimeRepo.Close() }
+	if options.InstanceID == "" {
+		options.InstanceID, err = runtimeRepo.EnsureInstanceID(context.Background())
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("load instance identity: %w", err)
+		}
+	}
 	dispatcher, err := provider.NewDispatcher(provider.Config{Sources: providerSources(options.Config.Upstream.ProviderIDs)})
 	if err != nil {
 		cleanup()
