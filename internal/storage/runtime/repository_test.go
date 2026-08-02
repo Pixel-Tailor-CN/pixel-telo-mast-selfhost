@@ -140,6 +140,51 @@ func TestRepositorySupportsConcurrentWritesAndMetadata(t *testing.T) {
 	}
 }
 
+func TestEnsureInstanceIDIsStableAcrossConcurrentCalls(t *testing.T) {
+	repo, err := Open(filepath.Join(t.TempDir(), "runtime.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+
+	values := make(chan string, 16)
+	errors := make(chan error, 16)
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			value, ensureErr := repo.EnsureInstanceID(context.Background())
+			if ensureErr != nil {
+				errors <- ensureErr
+				return
+			}
+			values <- value
+		}()
+	}
+	wg.Wait()
+	close(values)
+	close(errors)
+	for ensureErr := range errors {
+		if ensureErr != nil {
+			t.Fatal(ensureErr)
+		}
+	}
+	var first string
+	for value := range values {
+		if first == "" {
+			first = value
+			continue
+		}
+		if value != first {
+			t.Fatalf("instance IDs differ: %q and %q", first, value)
+		}
+	}
+	if first == "" {
+		t.Fatal("no instance ID returned")
+	}
+}
+
 func TestOpenEscapesSQLiteURIPath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime#query&bar.db")
 	repo, err := Open(path)

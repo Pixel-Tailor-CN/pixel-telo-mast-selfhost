@@ -65,6 +65,13 @@ func instanceID(cfg *config.Config) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer repo.Close()
-	return repo.EnsureInstanceID(context.Background())
+	value, ensureErr := repo.EnsureInstanceID(context.Background())
+	closeErr := repo.Close()
+	if ensureErr != nil {
+		return "", ensureErr
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("close runtime database: %w", closeErr)
+	}
+	return value, nil
 }

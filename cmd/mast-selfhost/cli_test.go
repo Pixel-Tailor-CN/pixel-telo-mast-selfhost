@@ -80,7 +80,7 @@ func TestInitAndPairingPersistIdentityAndTLS(t *testing.T) {
 }
 
 func TestInitUsesConfiguredPaths(t *testing.T) {
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "O'Brien")
 	if err := runInit([]string{"--dir", dir}); err != nil {
 		t.Fatal(err)
 	}

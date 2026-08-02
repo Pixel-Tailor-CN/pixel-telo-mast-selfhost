@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/config"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/security"
@@ -38,9 +39,12 @@ func runInit(args []string) error {
 		return err
 	}
 	instanceID, err := runtimeRepo.EnsureInstanceID(context.Background())
-	_ = runtimeRepo.Close()
 	if err != nil {
+		_ = runtimeRepo.Close()
 		return err
+	}
+	if err := runtimeRepo.Close(); err != nil {
+		return fmt.Errorf("close runtime database: %w", err)
 	}
 	if err := os.WriteFile(configPath, []byte(exampleConfig(tokenPath, runtimePath, *publicURL)), 0o600); err != nil {
 		return err
@@ -63,5 +67,5 @@ func exampleConfig(tokenPath, runtimePath, publicURL string) string {
 	if publicURL != "" {
 		tlsMode = "auto"
 	}
-	return fmt.Sprintf("server:\n  listen: 127.0.0.1:8443\nauth:\n  token_file: '%s'\ntls:\n  mode: %s\n  public_url: '%s'\nstorage:\n  runtime_path: '%s'\nbaseline:\n  enabled: false\n  sync_on_start: false\n  check_interval: 24h\nquery:\n  timeout: 2s\n  max_concurrent: 4\nrate_limit:\n  requests_per_second: 1\n  burst: 5\nupstream:\n  provider_ids:\n    - sogou\nlog:\n  level: info\n  format: json\n", tokenPath, tlsMode, publicURL, runtimePath)
+	return fmt.Sprintf("server:\n  listen: 127.0.0.1:8443\nauth:\n  token_file: %s\ntls:\n  mode: %s\n  public_url: %s\nstorage:\n  runtime_path: %s\nbaseline:\n  enabled: false\n  sync_on_start: false\n  check_interval: 24h\nquery:\n  timeout: 2s\n  max_concurrent: 4\nrate_limit:\n  requests_per_second: 1\n  burst: 5\nupstream:\n  provider_ids:\n    - sogou\nlog:\n  level: info\n  format: json\n", strconv.Quote(tokenPath), tlsMode, strconv.Quote(publicURL), strconv.Quote(runtimePath))
 }

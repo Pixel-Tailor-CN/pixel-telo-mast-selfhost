@@ -346,9 +346,24 @@ func (r *Repository) EnsureInstanceID(ctx context.Context) (string, error) {
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return "", err
 	}
-	value = uuid.NewString()
-	if err := r.SetMetadata(ctx, "instance_id", value); err != nil {
-		return "", err
+	candidate := uuid.NewString()
+	transaction, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("begin instance identity write: %w", err)
+	}
+	defer transaction.Rollback()
+	if _, err := transaction.ExecContext(ctx, `
+        INSERT INTO runtime_metadata (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO NOTHING`,
+		"instance_id", candidate, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return "", fmt.Errorf("persist instance identity: %w", err)
+	}
+	if err := transaction.QueryRowContext(ctx, `SELECT value FROM runtime_metadata WHERE key = ?`, "instance_id").Scan(&value); err != nil {
+		return "", fmt.Errorf("read persisted instance identity: %w", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		return "", fmt.Errorf("commit instance identity: %w", err)
 	}
 	return value, nil
 }
