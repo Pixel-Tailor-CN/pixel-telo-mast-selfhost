@@ -4,11 +4,15 @@ package runtime
 import (
 	"context"
 	"database/sql"
-	_ "embed"
+	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,8 +21,13 @@ import (
 	_ "github.com/glebarez/go-sqlite"
 )
 
-//go:embed migrations/000001_init.sql
-var initialMigration string
+//go:embed migrations/*.sql
+var migrationFiles embed.FS
+
+type migration struct {
+	version int
+	sql     string
+}
 
 // Repository 使用 SQLite WAL 持久化 Provider 骚扰结果。
 type Repository struct {
@@ -40,18 +49,25 @@ func Open(path string) (*Repository, error) {
 	if err := os.MkdirAll(filepath.Dir(absPath), 0o700); err != nil {
 		return nil, fmt.Errorf("create runtime database directory: %w", err)
 	}
-	dsn := "file:" + filepath.ToSlash(absPath) + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	dsn := sqliteFileURI(absPath, url.Values{
+		"_pragma": {"busy_timeout(5000)", "journal_mode(WAL)"},
+	})
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open runtime database: %w", err)
 	}
 	db.SetMaxOpenConns(4)
 	db.SetMaxIdleConns(4)
-	if err := db.Ping(); err != nil {
+	if err := pingWithRetry(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("ping runtime database: %w", err)
 	}
-	if _, err := db.Exec(initialMigration); err != nil {
+	migrations, err := loadMigrations(migrationFiles)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("load runtime migrations: %w", err)
+	}
+	if err := applyMigrations(context.Background(), db, migrations); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate runtime database: %w", err)
 	}
@@ -60,6 +76,132 @@ func Open(path string) (*Repository, error) {
 		return nil, fmt.Errorf("restrict runtime database permissions: %w", err)
 	}
 	return &Repository{db: db}, nil
+}
+
+func pingWithRetry(db *sql.DB) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err := db.Ping()
+		if err == nil || !isSQLiteBusy(err) || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func isSQLiteBusy(err error) bool {
+	message := err.Error()
+	return strings.Contains(message, "SQLITE_BUSY") || strings.Contains(message, "database is locked")
+}
+
+func loadMigrations(files fs.FS) ([]migration, error) {
+	entries, err := fs.ReadDir(files, "migrations")
+	if err != nil {
+		return nil, fmt.Errorf("read migration directory: %w", err)
+	}
+	migrations := make([]migration, 0, len(entries))
+	versions := make(map[int]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		prefix, _, found := strings.Cut(entry.Name(), "_")
+		if !found {
+			return nil, fmt.Errorf("migration %q must start with a version", entry.Name())
+		}
+		version, err := strconv.Atoi(prefix)
+		if err != nil || version <= 0 {
+			return nil, fmt.Errorf("invalid migration version in %q", entry.Name())
+		}
+		if _, exists := versions[version]; exists {
+			return nil, fmt.Errorf("duplicate migration version %d", version)
+		}
+		contents, err := fs.ReadFile(files, "migrations/"+entry.Name())
+		if err != nil {
+			return nil, fmt.Errorf("read migration %q: %w", entry.Name(), err)
+		}
+		versions[version] = struct{}{}
+		migrations = append(migrations, migration{version: version, sql: string(contents)})
+	}
+	sort.Slice(migrations, func(left, right int) bool {
+		return migrations[left].version < migrations[right].version
+	})
+	return migrations, nil
+}
+
+func applyMigrations(ctx context.Context, db *sql.DB, migrations []migration) error {
+	connection, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration connection: %w", err)
+	}
+	defer connection.Close()
+	if err := withImmediateTransaction(ctx, connection, func() error {
+		_, err := connection.ExecContext(ctx, `
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version INTEGER NOT NULL PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            )`)
+		return err
+	}); err != nil {
+		return fmt.Errorf("create migration ledger: %w", err)
+	}
+	for _, migration := range migrations {
+		if err := withImmediateTransaction(ctx, connection, func() error {
+			var applied bool
+			if err := connection.QueryRowContext(ctx,
+				`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = ?)`, migration.version,
+			).Scan(&applied); err != nil {
+				return fmt.Errorf("check migration %d: %w", migration.version, err)
+			}
+			if applied {
+				return nil
+			}
+			if _, err := connection.ExecContext(ctx, migration.sql); err != nil {
+				return fmt.Errorf("apply migration %d: %w", migration.version, err)
+			}
+			if _, err := connection.ExecContext(ctx,
+				`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
+				migration.version, time.Now().UTC().Format(time.RFC3339Nano),
+			); err != nil {
+				return fmt.Errorf("record migration %d: %w", migration.version, err)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func withImmediateTransaction(ctx context.Context, connection *sql.Conn, operation func() error) (err error) {
+	if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return err
+	}
+	defer func() {
+		if err == nil {
+			return
+		}
+		if _, rollbackErr := connection.ExecContext(ctx, "ROLLBACK"); rollbackErr != nil {
+			err = fmt.Errorf("%w; rollback migration transaction: %v", err, rollbackErr)
+		}
+	}()
+	if err := operation(); err != nil {
+		return err
+	}
+	if _, err := connection.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("commit migration transaction: %w", err)
+	}
+	return nil
+}
+
+func sqliteFileURI(path string, query url.Values) string {
+	uriPath := filepath.ToSlash(path)
+	if !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath
+	}
+	uri := &url.URL{Scheme: "file", Path: uriPath}
+	uri.RawQuery = query.Encode()
+	return uri.String()
 }
 
 // Close 关闭 SQLite 连接池。

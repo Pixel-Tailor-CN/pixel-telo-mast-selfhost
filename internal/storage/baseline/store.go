@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,22 +23,43 @@ type snapshot struct {
 
 // Store 持有当前活动 baseline 的只读 SQLite 句柄。
 type Store struct {
-	mu     sync.RWMutex
-	active *snapshot
+	mu           sync.RWMutex
+	active       *snapshot
+	closed       bool
+	openSnapshot func(path string) (*snapshot, error)
 }
+
+var errStoreClosed = errors.New("baseline store is closed")
 
 // NewStore 创建尚未加载 baseline 的 Store。
 func NewStore() *Store {
-	return &Store{}
+	return &Store{openSnapshot: openSnapshot}
 }
 
 // Replace 打开新 baseline 并原子替换活动查询句柄。
 func (s *Store) Replace(path string) error {
-	next, err := openSnapshot(path)
+	s.mu.RLock()
+	closed := s.closed
+	opener := s.openSnapshot
+	s.mu.RUnlock()
+	if closed {
+		return errStoreClosed
+	}
+	if opener == nil {
+		opener = openSnapshot
+	}
+	next, err := opener(path)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		if err := next.db.Close(); err != nil {
+			return fmt.Errorf("close unopened baseline snapshot: %w", err)
+		}
+		return errStoreClosed
+	}
 	previous := s.active
 	s.active = next
 	s.mu.Unlock()
@@ -123,6 +145,7 @@ func (s *Store) list(ctx context.Context, query string, arguments []any) ([]*dom
 func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.closed = true
 	if s.active == nil {
 		return nil
 	}
@@ -136,7 +159,11 @@ func openSnapshot(path string) (*snapshot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve baseline path: %w", err)
 	}
-	dsn := "file:" + filepath.ToSlash(absPath) + "?mode=ro&immutable=1&_pragma=query_only(1)&_pragma=busy_timeout(5000)"
+	dsn := sqliteFileURI(absPath, url.Values{
+		"mode":      {"ro"},
+		"immutable": {"1"},
+		"_pragma":   {"query_only(1)", "busy_timeout(5000)"},
+	})
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open baseline database: %w", err)
@@ -154,4 +181,14 @@ func openSnapshot(path string) (*snapshot, error) {
 		return nil, fmt.Errorf("read baseline version: %w", err)
 	}
 	return &snapshot{db: db, path: absPath, version: version}, nil
+}
+
+func sqliteFileURI(path string, query url.Values) string {
+	uriPath := filepath.ToSlash(path)
+	if !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath
+	}
+	uri := &url.URL{Scheme: "file", Path: uriPath}
+	uri.RawQuery = query.Encode()
+	return uri.String()
 }

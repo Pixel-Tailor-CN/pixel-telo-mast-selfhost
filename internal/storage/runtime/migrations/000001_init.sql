@@ -1,9 +1,4 @@
-CREATE TABLE IF NOT EXISTS schema_migrations (
-    version INTEGER NOT NULL PRIMARY KEY,
-    applied_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS query_records (
+CREATE TABLE query_records (
     phone_number TEXT NOT NULL,
     source TEXT NOT NULL,
     tag TEXT NOT NULL,
@@ -13,14 +8,11 @@ CREATE TABLE IF NOT EXISTS query_records (
     PRIMARY KEY (phone_number, source)
 );
 
-CREATE INDEX IF NOT EXISTS idx_query_records_phone_number
+CREATE INDEX idx_query_records_phone_number
     ON query_records (phone_number);
 
-CREATE TABLE IF NOT EXISTS runtime_metadata (
+CREATE TABLE runtime_metadata (
     key TEXT NOT NULL PRIMARY KEY,
     value TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
-
-INSERT OR IGNORE INTO schema_migrations (version, applied_at)
-VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));

@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -135,5 +137,111 @@ func TestRepositorySupportsConcurrentWritesAndMetadata(t *testing.T) {
 	}
 	if strings.ToLower(journalMode) != "wal" {
 		t.Fatalf("journal mode = %q", journalMode)
+	}
+}
+
+func TestOpenEscapesSQLiteURIPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime#query&bar.db")
+	repo, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+	if err := repo.SaveBatch(context.Background(), []*domain.Record{{
+		PhoneNumber: "13800138000",
+		Source:      "sogou",
+		Tag:         "marketing",
+		Confidence:  100,
+		HitCount:    1,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.ListByPhone(context.Background(), "13800138000"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSQLiteFileURIEscapesPathCharacters(t *testing.T) {
+	path, err := filepath.Abs(filepath.Join("testdata", "runtime#query?source=foo&bar.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	uri := sqliteFileURI(path, url.Values{"mode": {"rwc"}})
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPath := "/" + filepath.ToSlash(path)
+	if parsed.Path != wantPath {
+		t.Fatalf("URI path = %q, want %q", parsed.Path, wantPath)
+	}
+	if parsed.Query().Get("mode") != "rwc" {
+		t.Fatalf("URI query = %q, want mode=rwc", parsed.RawQuery)
+	}
+}
+
+func TestApplyMigrationsSkipsAppliedVersionsAndPreservesOrder(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	migrations := []migration{
+		{version: 1, sql: `CREATE TABLE first_migration (value TEXT NOT NULL);`},
+		{version: 2, sql: `INSERT INTO first_migration (value) VALUES ('second');`},
+	}
+	if err := applyMigrations(context.Background(), db, migrations[:1]); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyMigrations(context.Background(), db, migrations); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM first_migration WHERE value = 'second'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("second migration executions = %d, want 1", count)
+	}
+	rows, err := db.Query(`SELECT version FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var versions []int
+	for rows.Next() {
+		var version int
+		if err := rows.Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		versions = append(versions, version)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(versions) != "[1 2]" {
+		t.Fatalf("migration versions = %v, want [1 2]", versions)
+	}
+}
+
+func TestOpenSerializesConcurrentMigrations(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime.db")
+	start := make(chan struct{})
+	errors := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			repository, err := Open(path)
+			if err == nil {
+				err = repository.Close()
+			}
+			errors <- err
+		}()
+	}
+	close(start)
+	for range 2 {
+		if err := <-errors; err != nil {
+			t.Fatalf("concurrent Open failed: %v", err)
+		}
 	}
 }
