@@ -3,16 +3,17 @@ package security
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"math/big"
 	"net"
 	"net/url"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/config"
@@ -102,5 +103,6 @@ func CertificateSPKI(certFile string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(fmt.Sprintf("sha256/%x", cert.RawSubjectPublicKeyInfo)), nil
+	hash := sha256.Sum256(cert.RawSubjectPublicKeyInfo)
+	return "sha256/" + base64.StdEncoding.EncodeToString(hash[:]), nil
 }

@@ -1,0 +1,11 @@
+.git
+.idea
+.superpowers
+AGENTS.md
+docs
+*.db
+*.zip
+*.pem
+*.key
+token
+config.yaml
