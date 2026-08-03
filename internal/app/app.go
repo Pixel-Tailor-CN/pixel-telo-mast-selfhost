@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -106,7 +107,11 @@ func (a *App) Start(ctx context.Context, tlsConfig *tls.Config) error {
 	if tlsConfig != nil {
 		listener = tls.NewListener(listener, tlsConfig)
 	}
-	go func() { _ = a.server.Serve(listener) }()
+	go func() {
+		if err := a.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("self-host server stopped unexpectedly", "error", err)
+		}
+	}()
 	if a.sync != nil {
 		go func() { _ = a.sync.Run(ctx) }()
 	}

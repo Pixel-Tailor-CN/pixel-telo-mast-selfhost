@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -237,5 +239,69 @@ func TestPrepareServeCreatesAndReusesToken(t *testing.T) {
 	}
 	if secondConfig.Auth.TokenFile != cfg.Auth.TokenFile {
 		t.Fatal("config changed during repeated serve preparation")
+	}
+}
+
+func TestServeConfigPathUsesDataDirectory(t *testing.T) {
+	got, err := serveConfigPath(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "config.yaml" {
+		t.Fatalf("default config path = %q", got)
+	}
+
+	dir := filepath.Join(t.TempDir(), "data")
+	got, err = serveConfigPath([]string{"--dir", dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, "config.yaml")
+	if got != want {
+		t.Fatalf("config path = %q, want %q", got, want)
+	}
+}
+
+func TestServeConfigPathRejectsConfigFlag(t *testing.T) {
+	if _, err := serveConfigPath([]string{"--config", "config.yaml"}); err == nil {
+		t.Fatal("removed --config flag should be rejected")
+	}
+}
+
+func TestRunServeContextLogsLifecycle(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInit([]string{"--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "config.yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), "127.0.0.1:8443", "127.0.0.1:0", 1))
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(previousLogger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := runServeContext(ctx, []string{"--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range []string{
+		"configuration loaded",
+		"starting self-host server",
+		"self-host server started",
+		"shutdown signal received",
+		"self-host server stopped",
+	} {
+		if !strings.Contains(logs.String(), "msg=\""+message+"\"") {
+			t.Fatalf("missing log %q in %s", message, logs.String())
+		}
 	}
 }

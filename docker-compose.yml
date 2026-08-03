@@ -6,6 +6,6 @@ services:
       - "8443:8443"
     volumes:
       - mast-data:/data
-    command: ["serve", "--config", "/data/config.yaml"]
+    command: ["serve", "--dir", "/data"]
 volumes:
   mast-data:
