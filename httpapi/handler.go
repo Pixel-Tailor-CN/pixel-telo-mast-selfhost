@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/security"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/service"
@@ -28,7 +27,6 @@ func (h *Handler) Register(router *gin.Engine) {
 	authenticated.GET("/selfhost/v1/info", h.info)
 	authenticated.GET("/v2/sources", h.sources)
 	queries := authenticated.Group("", h.Limiter.Middleware())
-	queries.GET("/v1/query", h.queryV1)
 	queries.POST("/v2/query", h.queryV2)
 }
 
@@ -37,20 +35,6 @@ func (h *Handler) info(c *gin.Context) {
 }
 
 func (h *Handler) sources(c *gin.Context) { c.JSON(http.StatusOK, h.Service.ListSources()) }
-
-func (h *Handler) queryV1(c *gin.Context) {
-	phone := strings.TrimSpace(c.Query("number"))
-	if !validPhone(phone) {
-		h.writeError(c, http.StatusBadRequest, "invalid_request")
-		return
-	}
-	record, err := h.Service.Lookup(c.Request.Context(), phone)
-	if err != nil {
-		h.writeServiceError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, queryResponse{Record: &recordResponse{PhoneNumber: record.PhoneNumber, Tag: record.Tag, Source: record.Source, Confidence: record.Confidence}, QueryMode: "v1"})
-}
 
 type queryV2Request struct {
 	Number  string   `json:"number"`

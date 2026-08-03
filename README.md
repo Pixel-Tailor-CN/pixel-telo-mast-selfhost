@@ -40,7 +40,6 @@ mast-selfhost pairing --config /data/config.yaml
 除 `GET /api/health` 外，Self-host API 均要求 Bearer Token：
 
 - `GET /api/selfhost/v1/info`
-- `GET /api/v1/query?number=...`
 - `GET /api/v2/sources`
 - `POST /api/v2/query`
 

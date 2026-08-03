@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -47,7 +48,7 @@ func TestSelfHostRouteSetExcludesFeedbackAndMetrics(t *testing.T) {
 	for _, route := range router.Routes() {
 		seen[route.Method+" "+route.Path] = true
 	}
-	want := []string{"GET /api/health", "GET /api/selfhost/v1/info", "GET /api/v1/query", "GET /api/v2/sources", "POST /api/v2/query"}
+	want := []string{"GET /api/health", "GET /api/selfhost/v1/info", "GET /api/v2/sources", "POST /api/v2/query"}
 	if len(seen) != len(want) {
 		t.Fatalf("routes = %#v", seen)
 	}
@@ -58,6 +59,18 @@ func TestSelfHostRouteSetExcludesFeedbackAndMetrics(t *testing.T) {
 	}
 	if seen["POST /api/v2/query/feedback"] || seen["GET /metrics"] {
 		t.Fatal("forbidden route registered")
+	}
+}
+
+func TestV1QueryRouteIsNotRegistered(t *testing.T) {
+	router := gin.New()
+	testHandler(t).Register(router)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/query?number=13800138000", nil)
+	request.Header.Set("Authorization", "Bearer "+string(bytes.Repeat([]byte("t"), 32)))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }
 

@@ -1,0 +1,6 @@
+# 本地协作规范，不进入公共仓库
+/AGENTS.md
+/docs/
+*.exe
+.idea
+datas
