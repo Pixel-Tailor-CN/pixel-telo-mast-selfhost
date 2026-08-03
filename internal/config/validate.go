@@ -2,6 +2,8 @@ package config
 
 import (
 	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -86,6 +88,46 @@ func GenerateToken() ([]byte, error) {
 	if _, err := rand.Read(token); err != nil {
 		return nil, fmt.Errorf("generate auth token: %w", err)
 	}
+	return token, nil
+}
+
+func EnsureToken(path string) ([]byte, error) {
+	token, err := ReadToken(path)
+	if err == nil {
+		return token, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	randomToken, err := GenerateToken()
+	if err != nil {
+		return nil, err
+	}
+	token = []byte(hex.EncodeToString(randomToken))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create auth token parent: %w", err)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return ReadToken(path)
+		}
+		return nil, fmt.Errorf("create auth token: %w", err)
+	}
+	complete := false
+	defer func() {
+		if !complete {
+			_ = file.Close()
+			_ = os.Remove(path)
+		}
+	}()
+	if _, err := file.Write(token); err != nil {
+		return nil, fmt.Errorf("write auth token: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return nil, fmt.Errorf("close auth token: %w", err)
+	}
+	complete = true
 	return token, nil
 }
 

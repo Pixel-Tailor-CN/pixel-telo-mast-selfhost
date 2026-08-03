@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,20 +13,28 @@ import (
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/storage/runtime"
 )
 
-func TestInitAndPairingPersistIdentityAndTLS(t *testing.T) {
+func TestPrepareServeAndPairingPersistIdentityAndTLS(t *testing.T) {
 	dir := t.TempDir()
-	if err := runInit([]string{"--dir", dir, "--public-url", "https://127.0.0.1:9443"}); err != nil {
+	if err := runInit([]string{"--dir", dir}); err != nil {
 		t.Fatal(err)
 	}
 
 	configPath := filepath.Join(dir, "config.yaml")
-	cfg, err := config.Load(configPath)
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := config.ReadToken(cfg.Auth.TokenFile)
+	configured := strings.Replace(string(data), "mode: \"off\"", "mode: \"auto\"", 1)
+	configured = strings.Replace(configured, "public_url: \"\"", "public_url: \"https://127.0.0.1:9443\"", 1)
+	if err := os.WriteFile(configPath, []byte(configured), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, token, tlsConfig, err := prepareServe(configPath)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if tlsConfig == nil {
+		t.Fatal("auto TLS config is nil")
 	}
 	certFile, keyFile := cfg.TLSFiles()
 	for _, path := range []string{certFile, keyFile} {
@@ -94,11 +101,141 @@ func TestInitUsesConfiguredPaths(t *testing.T) {
 	if !strings.HasSuffix(cfg.Storage.RuntimePath, filepath.Join("", "runtime.db")) {
 		t.Fatalf("runtime path = %q", cfg.Storage.RuntimePath)
 	}
-	token, err := os.ReadFile(cfg.Auth.TokenFile)
+}
+
+func TestInitOnlyCreatesConfig(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data")
+	if err := runInit([]string{"--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(token) != hex.EncodedLen(sha256.Size) {
-		t.Fatalf("token length = %d", len(token))
+	if len(entries) != 1 || entries[0].Name() != "config.yaml" {
+		t.Fatalf("initialized files = %#v", entries)
+	}
+
+	cfg, err := config.Load(filepath.Join(dir, "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, path := range map[string]string{
+		"token":   cfg.Auth.TokenFile,
+		"runtime": cfg.Storage.RuntimePath,
+	} {
+		if !filepath.IsAbs(path) {
+			t.Fatalf("%s path is not absolute: %q", name, path)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s should not exist after init: %v", name, err)
+		}
+	}
+	certFile, keyFile := cfg.TLSFiles()
+	for name, path := range map[string]string{"certificate": certFile, "private key": keyFile} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s should not exist after init: %v", name, err)
+		}
+	}
+}
+
+func TestInitRejectsExistingConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	want := []byte("existing config\n")
+	if err := os.WriteFile(configPath, want, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runInit([]string{"--dir", dir}); err == nil {
+		t.Fatal("existing config should not be overwritten")
+	}
+	got, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("existing config changed: %q", got)
+	}
+}
+
+func TestInitRejectsPublicURLFlag(t *testing.T) {
+	if err := runInit([]string{"--dir", t.TempDir(), "--public-url", "https://127.0.0.1:9443"}); err == nil {
+		t.Fatal("removed --public-url flag should be rejected")
+	}
+}
+
+func TestPrepareServeRejectsMissingConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.yaml")
+	if _, _, _, err := prepareServe(path); err == nil {
+		t.Fatal("missing config should be rejected")
+	}
+}
+
+func TestPrepareServeRejectsDirectory(t *testing.T) {
+	if _, _, _, err := prepareServe(t.TempDir()); err == nil {
+		t.Fatal("config directory should be rejected")
+	}
+}
+
+func TestPrepareServeValidatesBeforeCreatingToken(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInit([]string{"--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "config.yaml")
+	file, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString("unknown: true\n"); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := prepareServe(configPath); err == nil {
+		t.Fatal("invalid config should be rejected")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "token")); !os.IsNotExist(err) {
+		t.Fatalf("token should not be created for invalid config: %v", err)
+	}
+	for name, path := range map[string]string{
+		"runtime":     filepath.Join(dir, "runtime.db"),
+		"certificate": filepath.Join(dir, "runtime.db.crt"),
+		"private key": filepath.Join(dir, "runtime.db.key"),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s should not be created for invalid config: %v", name, err)
+		}
+	}
+}
+
+func TestPrepareServeCreatesAndReusesToken(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInit([]string{"--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "config.yaml")
+	cfg, first, tlsConfig, err := prepareServe(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tlsConfig != nil {
+		t.Fatalf("TLS config = %#v", tlsConfig)
+	}
+	if len(first) != 64 {
+		t.Fatalf("token length = %d", len(first))
+	}
+	secondConfig, second, _, err := prepareServe(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(second) != string(first) {
+		t.Fatal("token changed during repeated serve preparation")
+	}
+	if secondConfig.Auth.TokenFile != cfg.Auth.TokenFile {
+		t.Fatal("config changed during repeated serve preparation")
 	}
 }

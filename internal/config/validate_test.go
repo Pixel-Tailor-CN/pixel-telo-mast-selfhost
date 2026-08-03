@@ -1,8 +1,10 @@
 package config
 
 import (
+	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -46,5 +48,63 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 	}
 	if _, err := Load(path); err == nil {
 		t.Fatal("unknown field should fail")
+	}
+}
+
+func TestEnsureTokenCreatesMissingToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secrets", "token")
+	token, err := EnsureToken(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(token) != hex.EncodedLen(32) {
+		t.Fatalf("token length = %d", len(token))
+	}
+	decoded, err := hex.DecodeString(string(token))
+	if err != nil {
+		t.Fatalf("token is not hexadecimal: %v", err)
+	}
+	if len(decoded) != 32 {
+		t.Fatalf("decoded token length = %d", len(decoded))
+	}
+	stored, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stored) != string(token) {
+		t.Fatal("stored token differs from returned token")
+	}
+}
+
+func TestEnsureTokenReusesExistingToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token")
+	want := strings.Repeat("a", 64)
+	if err := os.WriteFile(path, []byte(want), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := EnsureToken(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Fatalf("token = %q", got)
+	}
+}
+
+func TestEnsureTokenRejectsInvalidTokenWithoutOverwrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token")
+	want := []byte("short")
+	if err := os.WriteFile(path, want, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureToken(path); err == nil {
+		t.Fatal("short token should be rejected")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("invalid token was overwritten: %q", got)
 	}
 }

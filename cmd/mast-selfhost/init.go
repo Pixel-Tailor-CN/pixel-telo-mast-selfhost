@@ -1,71 +1,79 @@
 package main
 
 import (
-	"context"
-	"encoding/hex"
+	"bytes"
+	_ "embed"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
-
-	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/config"
-	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/security"
-	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/storage/runtime"
+	"text/template"
 )
+
+//go:embed config.example.yaml
+var exampleConfigTemplate string
+
+type exampleConfigData struct {
+	TokenPath   string
+	RuntimePath string
+}
 
 func runInit(args []string) error {
 	flags := flag.NewFlagSet("init", flag.ContinueOnError)
 	dir := flags.String("dir", ".", "data directory")
-	publicURL := flags.String("public-url", "", "public HTTPS URL for auto TLS")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(*dir, 0o700); err != nil {
-		return err
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected init arguments: %v", flags.Args())
 	}
-	token, err := config.GenerateToken()
+	data, err := renderExampleConfig(*dir)
 	if err != nil {
 		return err
 	}
-	tokenPath := filepath.Join(*dir, "token")
-	if err := os.WriteFile(tokenPath, []byte(hex.EncodeToString(token)), 0o600); err != nil {
-		return err
+	if err := os.MkdirAll(*dir, 0o700); err != nil {
+		return fmt.Errorf("create data directory: %w", err)
 	}
 	configPath := filepath.Join(*dir, "config.yaml")
-	runtimePath := filepath.Join(*dir, "runtime.db")
-	runtimeRepo, err := runtime.Open(runtimePath)
+	file, err := os.OpenFile(configPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return err
+		return fmt.Errorf("create config: %w", err)
 	}
-	instanceID, err := runtimeRepo.EnsureInstanceID(context.Background())
-	if err != nil {
-		_ = runtimeRepo.Close()
-		return err
-	}
-	if err := runtimeRepo.Close(); err != nil {
-		return fmt.Errorf("close runtime database: %w", err)
-	}
-	if err := os.WriteFile(configPath, []byte(exampleConfig(tokenPath, runtimePath, *publicURL)), 0o600); err != nil {
-		return err
-	}
-	if *publicURL != "" {
-		cfg, err := config.Load(configPath)
-		if err != nil {
-			return err
+	complete := false
+	defer func() {
+		if !complete {
+			_ = file.Close()
+			_ = os.Remove(configPath)
 		}
-		if _, err := security.PrepareTLS(cfg); err != nil {
-			return err
-		}
+	}()
+	if _, err := file.Write(data); err != nil {
+		return fmt.Errorf("write config: %w", err)
 	}
-	fmt.Printf("initialized config=%s token=%s instance_id=%s\n", configPath, tokenPath, instanceID)
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close config: %w", err)
+	}
+	complete = true
+	fmt.Printf("initialized config=%s\n", configPath)
 	return nil
 }
 
-func exampleConfig(tokenPath, runtimePath, publicURL string) string {
-	tlsMode := "off"
-	if publicURL != "" {
-		tlsMode = "auto"
+func renderExampleConfig(dir string) ([]byte, error) {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve data directory: %w", err)
 	}
-	return fmt.Sprintf("server:\n  listen: 127.0.0.1:8443\nauth:\n  token_file: %s\ntls:\n  mode: %s\n  public_url: %s\nstorage:\n  runtime_path: %s\nbaseline:\n  enabled: false\n  sync_on_start: false\n  check_interval: 24h\nquery:\n  timeout: 2s\n  max_concurrent: 4\nrate_limit:\n  requests_per_second: 1\n  burst: 5\nupstream:\n  provider_ids:\n    - sogou\nlog:\n  level: info\n  format: json\n", strconv.Quote(tokenPath), tlsMode, strconv.Quote(publicURL), strconv.Quote(runtimePath))
+	tmpl, err := template.New("config.example.yaml").Parse(exampleConfigTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("parse embedded config template: %w", err)
+	}
+	values := exampleConfigData{
+		TokenPath:   strconv.Quote(filepath.Join(absDir, "token")),
+		RuntimePath: strconv.Quote(filepath.Join(absDir, "runtime.db")),
+	}
+	var output bytes.Buffer
+	if err := tmpl.Execute(&output, values); err != nil {
+		return nil, fmt.Errorf("render embedded config template: %w", err)
+	}
+	return output.Bytes(), nil
 }

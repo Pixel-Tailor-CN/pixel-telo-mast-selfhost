@@ -25,9 +25,13 @@ Provider，并可选择同步官方离线库作为本地只读 baseline 缓存�
 
 ```bash
 mast-selfhost init --dir /data
+# 编辑 /data/config.yaml，确认监听地址、TLS、Provider 和 baseline 设置
 mast-selfhost serve --config /data/config.yaml
+# 服务至少成功启动一次后再输出配对信息
 mast-selfhost pairing --config /data/config.yaml
 ```
+
+`init` 只从二进制内嵌模板生成 `config.yaml`，不会生成 Token、TLS 证书、Runtime 数据库或实例身份，且不会覆盖已有配置。`init` 不是必需步骤；手工编写完整且有效的配置后可以直接运行 `serve`。`serve` 会先检查并严格校验配置，再在首次启动时生成缺失的 Token 和 `tls.mode=auto` 所需证书。
 
 服务端只使用配置中显式列出的 `upstream.provider_ids`，实时查询不会请求官方 Mast 查询地址。
 `baseline.enabled` 可选用固定官方 HTTPS 地址同步离线库；启用 `sync_on_start` 时同步失败会阻止 HTTP
