@@ -22,6 +22,7 @@ type exampleConfigData struct {
 	Listen                      string
 	AllowInsecurePrivateNetwork bool
 	ProviderIDs                 string
+	SyncOnStart                 bool
 }
 
 func runInit(args []string) error {
@@ -36,6 +37,7 @@ func newInitCommand() *cobra.Command {
 	var allowInsecure bool
 	var ifMissing bool
 	var providerIDs []string
+	syncOnStart := true
 	command := &cobra.Command{
 		Use:   "init",
 		Short: "生成初始配置文件",
@@ -48,7 +50,7 @@ func newInitCommand() *cobra.Command {
 					return err
 				}
 			}
-			return initDataDirectoryWithProviders(dir, listen, allowInsecure, providerIDs)
+			return initDataDirectoryWithProviders(dir, listen, allowInsecure, providerIDs, syncOnStart)
 		},
 	}
 	command.Flags().StringVar(&dir, "dir", ".", "数据目录")
@@ -56,6 +58,7 @@ func newInitCommand() *cobra.Command {
 	command.Flags().BoolVar(&allowInsecure, "allow-insecure-private-network", false, "允许私有网络使用裸 HTTP")
 	command.Flags().BoolVar(&ifMissing, "if-missing", false, "配置已存在时直接成功")
 	command.Flags().StringSliceVar(&providerIDs, "provider-id", nil, "显式启用的 Provider，可重复传入")
+	command.Flags().BoolVar(&syncOnStart, "sync-on-start", true, "启动时是否同步 baseline")
 	return command
 }
 
@@ -64,11 +67,11 @@ func initDataDirectory(dir string) error {
 }
 
 func initDataDirectoryWithOptions(dir, listen string, allowInsecure bool) error {
-	return initDataDirectoryWithProviders(dir, listen, allowInsecure, nil)
+	return initDataDirectoryWithProviders(dir, listen, allowInsecure, nil, true)
 }
 
-func initDataDirectoryWithProviders(dir, listen string, allowInsecure bool, providerIDs []string) error {
-	data, err := renderExampleConfigWithProviders(dir, listen, allowInsecure, providerIDs)
+func initDataDirectoryWithProviders(dir, listen string, allowInsecure bool, providerIDs []string, syncOnStart bool) error {
+	data, err := renderExampleConfigWithProviders(dir, listen, allowInsecure, providerIDs, syncOnStart)
 	if err != nil {
 		return err
 	}
@@ -103,10 +106,10 @@ func renderExampleConfig(dir string) ([]byte, error) {
 }
 
 func renderExampleConfigWithOptions(dir, listen string, allowInsecure bool) ([]byte, error) {
-	return renderExampleConfigWithProviders(dir, listen, allowInsecure, nil)
+	return renderExampleConfigWithProviders(dir, listen, allowInsecure, nil, true)
 }
 
-func renderExampleConfigWithProviders(dir, listen string, allowInsecure bool, providerIDs []string) ([]byte, error) {
+func renderExampleConfigWithProviders(dir, listen string, allowInsecure bool, providerIDs []string, syncOnStart bool) ([]byte, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve data directory: %w", err)
@@ -121,6 +124,7 @@ func renderExampleConfigWithProviders(dir, listen string, allowInsecure bool, pr
 		Listen:                      strconv.Quote(listen),
 		AllowInsecurePrivateNetwork: allowInsecure,
 		ProviderIDs:                 providerIDsYAML(providerIDs),
+		SyncOnStart:                 syncOnStart,
 	}
 	var output bytes.Buffer
 	if err := tmpl.Execute(&output, values); err != nil {

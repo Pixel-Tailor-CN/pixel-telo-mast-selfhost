@@ -252,6 +252,7 @@ func makeTestConfigRunnable(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	updated := strings.Replace(string(data), "provider_ids: []", "provider_ids: [\"sogou\"]", 1)
+	updated = strings.Replace(updated, "sync_on_start: true", "sync_on_start: false", 1)
 	if updated == string(data) {
 		t.Fatal("empty provider list was not found")
 	}

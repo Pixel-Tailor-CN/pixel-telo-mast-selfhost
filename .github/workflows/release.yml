@@ -138,8 +138,8 @@ jobs:
         run: |
           test "${IMAGE##*:}" = "${GITHUB_REF_NAME}"
           docker volume create mast-selfhost-smoke-data
-          docker run --rm -v mast-selfhost-smoke-data:/data "$IMAGE" init --dir /data --listen 0.0.0.0:8443 --allow-insecure-private-network
-          docker run -d --name mast-selfhost-smoke -v mast-selfhost-smoke-data:/data -p 18443:8443 "$IMAGE" serve --dir /data
+          docker run --rm -v mast-selfhost-smoke-data:/app/data "$IMAGE" init --dir /app/data --listen 0.0.0.0:8443 --allow-insecure-private-network --provider-id sogou --sync-on-start=false
+          docker run -d --name mast-selfhost-smoke -v mast-selfhost-smoke-data:/app/data -p 18443:8443 "$IMAGE" serve --dir /app/data
           for i in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:18443/api/health; then exit 0; fi
             sleep 1

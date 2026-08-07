@@ -4,7 +4,7 @@ services:
     restart: "no"
     volumes:
       - mast-data:/app/data
-    command: ["init", "--dir", "/app/data", "--if-missing", "--listen", "0.0.0.0:8443", "--allow-insecure-private-network", "--provider-id", "sogou"]
+    command: ["init", "--dir", "/app/data", "--if-missing", "--listen", "0.0.0.0:8443", "--allow-insecure-private-network", "--provider-id", "sogou", "--sync-on-start=false"]
   mast-selfhost:
     image: ghcr.io/pixel-tailor-cn/mast-selfhost:0.1.0
     restart: unless-stopped
