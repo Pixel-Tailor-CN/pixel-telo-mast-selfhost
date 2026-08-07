@@ -8,6 +8,26 @@ permissions:
   contents: write
 
 jobs:
+  verify:
+    name: Verify release inputs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag format
+        run: [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+      - name: Verify embedded phone data
+        run: sha256sum -c phone/phone.dat.sha256
+      - uses: gitleaks/gitleaks-action@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+      - name: Scan dependencies and licenses
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+          go install github.com/google/go-licenses@latest
+          go-licenses check ./...
+
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     strategy:
@@ -45,7 +65,7 @@ jobs:
 
   package:
     name: Package and attest release
-    needs: build
+    needs: [verify, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -101,7 +121,6 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=ref,event=tag
-            type=raw,value=latest
       - name: Build and push image
         id: build-image
         uses: docker/build-push-action@v6
@@ -113,6 +132,20 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           provenance: mode=max
           sbom: true
+      - name: Verify image version and health endpoint
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+        run: |
+          test "${IMAGE##*:}" = "${GITHUB_REF_NAME}"
+          docker volume create mast-selfhost-smoke-data
+          docker run --rm -v mast-selfhost-smoke-data:/data "$IMAGE" init --dir /data --listen 0.0.0.0:8443 --allow-insecure-private-network
+          docker run -d --name mast-selfhost-smoke -v mast-selfhost-smoke-data:/data -p 18443:8443 "$IMAGE" serve --dir /data
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18443/api/health; then exit 0; fi
+            sleep 1
+          done
+          docker logs mast-selfhost-smoke
+          exit 1
       - uses: sigstore/cosign-installer@v3
       - name: Sign image
         env:

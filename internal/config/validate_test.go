@@ -51,6 +51,45 @@ func TestLoadRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestLoadAcceptsProviderSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := `server:
+  listen: "127.0.0.1:8443"
+auth:
+  token_file: "/tmp/token"
+tls:
+  mode: "off"
+storage:
+  runtime_path: "/tmp/runtime.db"
+baseline:
+  enabled: false
+query:
+  timeout: "2s"
+  max_concurrent: 4
+rate_limit:
+  requests_per_second: 2
+  burst: 7
+upstream:
+  provider_ids: ["sogou"]
+providers:
+  sogou:
+    min_interval: "1s"
+    max_concurrent: 2
+    breaker_timeout: "45s"
+`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := cfg.Providers["sogou"]
+	if settings.MinInterval.Std() != time.Second || settings.MaxConcurrent != 2 || settings.BreakerTimeout.Std() != 45*time.Second {
+		t.Fatalf("provider settings = %+v", settings)
+	}
+}
+
 func TestEnsureTokenCreatesMissingToken(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "secrets", "token")
 	token, err := EnsureToken(path)

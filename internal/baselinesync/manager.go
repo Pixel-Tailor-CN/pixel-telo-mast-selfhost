@@ -23,11 +23,19 @@ type Manager struct {
 	checkInterval time.Duration
 	instanceID    string
 	logger        *slog.Logger
+	metadata      MetadataStore
 
 	syncMu sync.Mutex
 	mu     sync.Mutex
 	closed bool
 }
+
+// MetadataStore 保存 baseline 当前指针等运行时元数据。
+type MetadataStore interface {
+	SetMetadata(context.Context, string, string) error
+}
+
+const ActivePathMetadataKey = "baseline_active_path"
 
 // Options 配置 baseline 同步管理器。
 type Options struct {
@@ -37,6 +45,7 @@ type Options struct {
 	CheckInterval time.Duration
 	InstanceID    string
 	Logger        *slog.Logger
+	Metadata      MetadataStore
 }
 
 func NewManager(options Options) (*Manager, error) {
@@ -52,7 +61,7 @@ func NewManager(options Options) (*Manager, error) {
 	if options.Logger == nil {
 		options.Logger = slog.Default()
 	}
-	return &Manager{client: options.Client, store: options.Store, activePath: options.ActivePath, checkInterval: options.CheckInterval, instanceID: options.InstanceID, logger: options.Logger}, nil
+	return &Manager{client: options.Client, store: options.Store, activePath: options.ActivePath, checkInterval: options.CheckInterval, instanceID: options.InstanceID, logger: options.Logger, metadata: options.Metadata}, nil
 }
 
 func (m *Manager) Sync(ctx context.Context) error {
@@ -91,7 +100,7 @@ func (m *Manager) Sync(ctx context.Context) error {
 	}
 	oldPath := m.store.ActivePath()
 	finalPath := filepath.Join(dir, fmt.Sprintf("baseline-%s-%d.db", manifest.LatestVersion, time.Now().UnixNano()))
-	if err := activateDatabase(m.store, databasePath, finalPath, oldPath); err != nil {
+	if err := activateDatabase(ctx, m.store, databasePath, finalPath, oldPath, m.metadata); err != nil {
 		return err
 	}
 	m.mu.Lock()
@@ -171,15 +180,20 @@ func downloadArchiveWithContext(ctx context.Context, client Client, manifest Man
 	return path, nil
 }
 
-func activateDatabase(store *baseline.Store, candidate, active, previous string) error {
+func activateDatabase(ctx context.Context, store *baseline.Store, candidate, active, previous string, metadata MetadataStore) error {
 	if err := ensureFile(candidate); err != nil {
 		return err
 	}
 	if err := os.Rename(candidate, active); err != nil {
 		return fmt.Errorf("activate baseline file: %w", err)
 	}
+	if metadata != nil {
+		if err := metadata.SetMetadata(ctx, ActivePathMetadataKey, active); err != nil {
+			_ = os.Remove(active)
+			return fmt.Errorf("persist baseline active path: %w", err)
+		}
+	}
 	if err := store.Replace(active); err != nil {
-		_ = os.Remove(active)
 		return fmt.Errorf("activate baseline store: %w", err)
 	}
 	if previous != "" && previous != active {

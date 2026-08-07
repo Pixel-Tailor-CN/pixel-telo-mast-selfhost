@@ -1,5 +1,5 @@
 server:
-  listen: "127.0.0.1:8443"
+  listen: {{.Listen}}
 auth:
   token_file: {{.TokenPath}}
 tls:
@@ -7,7 +7,7 @@ tls:
   public_url: ""
   cert_file: ""
   key_file: ""
-  allow_insecure_private_network: false
+  allow_insecure_private_network: {{.AllowInsecurePrivateNetwork}}
 storage:
   runtime_path: {{.RuntimePath}}
 baseline:
@@ -23,6 +23,7 @@ rate_limit:
 upstream:
   provider_ids:
     - "sogou"
+providers: {}
 log:
   level: "info"
   format: "json"

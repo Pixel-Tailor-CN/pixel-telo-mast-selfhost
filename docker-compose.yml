@@ -1,4 +1,10 @@
 services:
+  mast-selfhost-init:
+    image: ghcr.io/pixel-tailor-cn/mast-selfhost:0.1.0
+    restart: "no"
+    volumes:
+      - mast-data:/data
+    command: ["init", "--dir", "/data", "--if-missing", "--listen", "0.0.0.0:8443", "--allow-insecure-private-network"]
   mast-selfhost:
     image: ghcr.io/pixel-tailor-cn/mast-selfhost:0.1.0
     restart: unless-stopped
@@ -7,5 +13,8 @@ services:
     volumes:
       - mast-data:/data
     command: ["serve", "--dir", "/data"]
+    depends_on:
+      mast-selfhost-init:
+        condition: service_completed_successfully
 volumes:
   mast-data:

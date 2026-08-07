@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/httpapi"
@@ -17,6 +19,7 @@ import (
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/storage/baseline"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/storage/runtime"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/provider"
+	queryDomain "github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/domain"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/port"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/service"
 )
@@ -50,6 +53,27 @@ func Build(options Options) (*App, error) {
 	}
 	baseStore := baseline.NewStore()
 	cleanup := func() { _ = baseStore.Close(); _ = runtimeRepo.Close() }
+	if options.Config.Baseline.Enabled {
+		if activePath, metadataErr := runtimeRepo.GetMetadata(context.Background(), baselinesync.ActivePathMetadataKey); metadataErr == nil {
+			activePath, err = filepath.Abs(activePath)
+			if err != nil {
+				cleanup()
+				return nil, fmt.Errorf("resolve baseline active path: %w", err)
+			}
+			if _, err := os.Stat(activePath); err == nil {
+				if err := baseStore.Replace(activePath); err != nil {
+					cleanup()
+					return nil, fmt.Errorf("load baseline active snapshot: %w", err)
+				}
+			} else if !os.IsNotExist(err) {
+				cleanup()
+				return nil, fmt.Errorf("inspect baseline active snapshot: %w", err)
+			}
+		} else if !errors.Is(metadataErr, queryDomain.ErrNotFound) {
+			cleanup()
+			return nil, fmt.Errorf("load baseline active path: %w", metadataErr)
+		}
+	}
 	if options.InstanceID == "" {
 		options.InstanceID, err = runtimeRepo.EnsureInstanceID(context.Background())
 		if err != nil {
@@ -57,7 +81,7 @@ func Build(options Options) (*App, error) {
 			return nil, fmt.Errorf("load instance identity: %w", err)
 		}
 	}
-	dispatcher, err := provider.NewDispatcher(provider.Config{Sources: providerSources(options.Config.Upstream.ProviderIDs)})
+	dispatcher, err := provider.NewDispatcher(provider.Config{Sources: providerSources(options.Config)})
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -74,7 +98,7 @@ func Build(options Options) (*App, error) {
 		if client == nil {
 			client = baselinesync.NewHTTPClient(nil)
 		}
-		syncManager, err = baselinesync.NewManager(baselinesync.Options{Client: client, Store: baseStore, ActivePath: options.Config.Storage.RuntimePath + ".baseline.db", CheckInterval: options.Config.Baseline.CheckInterval.Std(), InstanceID: options.InstanceID})
+		syncManager, err = baselinesync.NewManager(baselinesync.Options{Client: client, Store: baseStore, Metadata: runtimeRepo, ActivePath: options.Config.Storage.RuntimePath + ".baseline.db", CheckInterval: options.Config.Baseline.CheckInterval.Std(), InstanceID: options.InstanceID})
 		if err != nil {
 			_ = query.Close()
 			cleanup()
@@ -82,14 +106,15 @@ func Build(options Options) (*App, error) {
 		}
 	}
 	headers := security.ServerHeaders{Version: options.Version, APIVersion: "2", InstanceID: options.InstanceID}
-	handler := &httpapi.Handler{Service: query, Headers: headers, Token: options.Token, BuildCommit: options.Commit, Capabilities: []string{"query_v2", "spki_pairing"}}
+	handler := &httpapi.Handler{Service: query, Headers: headers, Token: options.Token, Limiter: security.NewQueryLimiter(options.Config.RateLimit.RequestsPerSecond, options.Config.RateLimit.Burst, options.Config.Query.MaxConcurrent), BuildCommit: options.Commit, Capabilities: []string{"query_v2", "spki_pairing"}}
 	return &App{config: options.Config, server: &http.Server{Addr: options.Config.Server.Listen, Handler: NewRouter(handler)}, runtime: runtimeRepo, baseline: baseStore, query: query, sync: syncManager}, nil
 }
 
-func providerSources(ids []string) []provider.SourceConfig {
-	result := make([]provider.SourceConfig, 0, len(ids))
-	for _, id := range ids {
-		result = append(result, provider.SourceConfig{ID: id})
+func providerSources(cfg *config.Config) []provider.SourceConfig {
+	result := make([]provider.SourceConfig, 0, len(cfg.Upstream.ProviderIDs))
+	for _, id := range cfg.Upstream.ProviderIDs {
+		settings := cfg.Providers[id]
+		result = append(result, provider.SourceConfig{ID: id, MinInterval: settings.MinInterval.Std(), MaxConcurrent: settings.MaxConcurrent, BreakerTimeout: settings.BreakerTimeout.Std()})
 	}
 	return result
 }

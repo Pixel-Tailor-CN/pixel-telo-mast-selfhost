@@ -23,6 +23,16 @@ type fakeClient struct {
 	checkErr error
 }
 
+type metadataRecorder struct{ values map[string]string }
+
+func (m *metadataRecorder) SetMetadata(_ context.Context, key, value string) error {
+	if m.values == nil {
+		m.values = make(map[string]string)
+	}
+	m.values[key] = value
+	return nil
+}
+
 func (f *fakeClient) Check(context.Context, string) (Manifest, error) {
 	if f.checkErr != nil {
 		return Manifest{}, f.checkErr
@@ -67,9 +77,10 @@ func TestSyncReplacesOnlyAfterCompleteValidation(t *testing.T) {
 	defer store.Close()
 	archive := makeArchive(t, "20260730000000", "new")
 	hash := sha256.Sum256(archive)
+	metadata := &metadataRecorder{}
 	manager, err := NewManager(Options{
 		Client: &fakeClient{manifest: Manifest{HasUpdate: true, LatestVersion: "20260730000000", DownloadURL: "https://example.test/baseline.zip", SizeBytes: int64(len(archive)), Checksum: hex.EncodeToString(hash[:])}, archive: archive},
-		Store:  store, ActivePath: active,
+		Store:  store, Metadata: metadata, ActivePath: active,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -79,6 +90,18 @@ func TestSyncReplacesOnlyAfterCompleteValidation(t *testing.T) {
 	}
 	if got := store.ActiveVersion(); got != "20260730000000" {
 		t.Fatalf("active version = %s", got)
+	}
+	path := metadata.values[ActivePathMetadataKey]
+	if path == "" {
+		t.Fatal("active baseline path was not persisted")
+	}
+	restarted := baseline.NewStore()
+	defer restarted.Close()
+	if err := restarted.Replace(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := restarted.ActiveVersion(); got != "20260730000000" {
+		t.Fatalf("restarted active version = %s", got)
 	}
 }
 

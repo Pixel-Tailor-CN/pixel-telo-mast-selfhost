@@ -22,6 +22,12 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 
 func (d Duration) Std() time.Duration { return time.Duration(d) }
 
+type ProviderConfig struct {
+	MinInterval    Duration `yaml:"min_interval"`
+	MaxConcurrent  int      `yaml:"max_concurrent"`
+	BreakerTimeout Duration `yaml:"breaker_timeout"`
+}
+
 func (c *Config) TLSFiles() (string, string) {
 	certFile, keyFile := c.TLS.CertFile, c.TLS.KeyFile
 	if certFile == "" {
@@ -66,7 +72,8 @@ type Config struct {
 	Upstream struct {
 		ProviderIDs []string `yaml:"provider_ids"`
 	} `yaml:"upstream"`
-	Log struct {
+	Providers map[string]ProviderConfig `yaml:"providers"`
+	Log       struct {
 		Level  string `yaml:"level"`
 		Format string `yaml:"format"`
 	} `yaml:"log"`

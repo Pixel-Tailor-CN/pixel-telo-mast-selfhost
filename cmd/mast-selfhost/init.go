@@ -16,8 +16,10 @@ import (
 var exampleConfigTemplate string
 
 type exampleConfigData struct {
-	TokenPath   string
-	RuntimePath string
+	TokenPath                   string
+	RuntimePath                 string
+	Listen                      string
+	AllowInsecurePrivateNetwork bool
 }
 
 func runInit(args []string) error {
@@ -28,20 +30,37 @@ func runInit(args []string) error {
 
 func newInitCommand() *cobra.Command {
 	var dir string
+	var listen string
+	var allowInsecure bool
+	var ifMissing bool
 	command := &cobra.Command{
 		Use:   "init",
 		Short: "生成初始配置文件",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return initDataDirectory(dir)
+			if ifMissing {
+				if _, err := os.Stat(filepath.Join(dir, "config.yaml")); err == nil {
+					return nil
+				} else if !os.IsNotExist(err) {
+					return err
+				}
+			}
+			return initDataDirectoryWithOptions(dir, listen, allowInsecure)
 		},
 	}
 	command.Flags().StringVar(&dir, "dir", ".", "数据目录")
+	command.Flags().StringVar(&listen, "listen", "127.0.0.1:8443", "监听地址")
+	command.Flags().BoolVar(&allowInsecure, "allow-insecure-private-network", false, "允许私有网络使用裸 HTTP")
+	command.Flags().BoolVar(&ifMissing, "if-missing", false, "配置已存在时直接成功")
 	return command
 }
 
 func initDataDirectory(dir string) error {
-	data, err := renderExampleConfig(dir)
+	return initDataDirectoryWithOptions(dir, "127.0.0.1:8443", false)
+}
+
+func initDataDirectoryWithOptions(dir, listen string, allowInsecure bool) error {
+	data, err := renderExampleConfigWithOptions(dir, listen, allowInsecure)
 	if err != nil {
 		return err
 	}
@@ -72,6 +91,10 @@ func initDataDirectory(dir string) error {
 }
 
 func renderExampleConfig(dir string) ([]byte, error) {
+	return renderExampleConfigWithOptions(dir, "127.0.0.1:8443", false)
+}
+
+func renderExampleConfigWithOptions(dir, listen string, allowInsecure bool) ([]byte, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve data directory: %w", err)
@@ -81,8 +104,10 @@ func renderExampleConfig(dir string) ([]byte, error) {
 		return nil, fmt.Errorf("parse embedded config template: %w", err)
 	}
 	values := exampleConfigData{
-		TokenPath:   strconv.Quote(filepath.Join(absDir, "token")),
-		RuntimePath: strconv.Quote(filepath.Join(absDir, "runtime.db")),
+		TokenPath:                   strconv.Quote(filepath.Join(absDir, "token")),
+		RuntimePath:                 strconv.Quote(filepath.Join(absDir, "runtime.db")),
+		Listen:                      strconv.Quote(listen),
+		AllowInsecurePrivateNetwork: allowInsecure,
 	}
 	var output bytes.Buffer
 	if err := tmpl.Execute(&output, values); err != nil {

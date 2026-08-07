@@ -48,6 +48,11 @@ func Validate(cfg *Config) error {
 	if cfg.Baseline.Enabled && cfg.Baseline.CheckInterval.Std() <= 0 {
 		return fmt.Errorf("baseline check interval must be positive")
 	}
+	for id, provider := range cfg.Providers {
+		if provider.MinInterval.Std() < 0 || provider.MaxConcurrent < 0 || provider.BreakerTimeout.Std() < 0 {
+			return fmt.Errorf("provider %q configuration is invalid", id)
+		}
+	}
 	return nil
 }
 

@@ -3,6 +3,25 @@ on:
   push:
   pull_request:
 jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: gitleaks/gitleaks-action@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+      - name: Scan Go dependencies
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+      - name: Check licenses
+        run: |
+          go install github.com/google/go-licenses@latest
+          go-licenses check ./...
+      - name: Verify embedded phone data
+        run: sha256sum -c phone/phone.dat.sha256
+
   test:
     runs-on: ubuntu-latest
     steps:
