@@ -268,6 +268,40 @@ func TestServeConfigPathRejectsConfigFlag(t *testing.T) {
 	}
 }
 
+func TestPairingUsesDataDirectory(t *testing.T) {
+	command := newPairingCommand()
+	if err := command.ParseFlags(nil); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := command.Flags().GetString("dir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := filepath.Join(dir, "config.yaml"); got != "config.yaml" {
+		t.Fatalf("default pairing config path = %q", got)
+	}
+
+	command = newPairingCommand()
+	if err := command.ParseFlags([]string{"--dir", filepath.Join("data", "instance")}); err != nil {
+		t.Fatal(err)
+	}
+	dir, err = command.Flags().GetString("dir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join("data", "instance", "config.yaml")
+	if got := filepath.Join(dir, "config.yaml"); got != want {
+		t.Fatalf("pairing config path = %q, want %q", got, want)
+	}
+}
+
+func TestPairingRejectsConfigFlag(t *testing.T) {
+	command := newPairingCommand()
+	if err := command.ParseFlags([]string{"--config", "config.yaml"}); err == nil {
+		t.Fatal("removed --config flag should be rejected")
+	}
+}
+
 func TestRunServeContextLogsLifecycle(t *testing.T) {
 	dir := t.TempDir()
 	if err := runInit([]string{"--dir", dir}); err != nil {

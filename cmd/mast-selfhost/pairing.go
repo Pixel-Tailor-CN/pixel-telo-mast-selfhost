@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/config"
@@ -25,16 +26,16 @@ func runPairing(args []string) error {
 }
 
 func newPairingCommand() *cobra.Command {
-	var configPath string
+	var dir string
 	command := &cobra.Command{
 		Use:   "pairing",
 		Short: "输出客户端配对信息",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return printPairingInfo(configPath)
+			return printPairingInfo(filepath.Join(dir, "config.yaml"))
 		},
 	}
-	command.Flags().StringVar(&configPath, "config", "config.yaml", "配置文件路径")
+	command.Flags().StringVar(&dir, "dir", ".", "数据目录")
 	return command
 }
 
