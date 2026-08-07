@@ -21,7 +21,8 @@ jobs:
           go install github.com/google/go-licenses@latest
           go-licenses check ./...
       - name: Verify embedded phone data
-        run: sha256sum -c phone/phone.dat.sha256
+        working-directory: phone
+        run: sha256sum -c phone.dat.sha256
 
   test:
     runs-on: ubuntu-latest

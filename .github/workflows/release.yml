@@ -17,7 +17,8 @@ jobs:
         run: |
           [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
       - name: Verify embedded phone data
-        run: sha256sum -c phone/phone.dat.sha256
+        working-directory: phone
+        run: sha256sum -c phone.dat.sha256
       - name: Scan repository for secrets
         run: docker run --rm -v "${{ github.workspace }}:/repo:ro" zricethezav/gitleaks:v8.30.1 detect --source=/repo --redact --no-banner
       - uses: actions/setup-go@v5
