@@ -3,12 +3,13 @@ package main
 import (
 	"bytes"
 	_ "embed"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"text/template"
+
+	"github.com/spf13/cobra"
 )
 
 //go:embed config.example.yaml
@@ -20,22 +21,34 @@ type exampleConfigData struct {
 }
 
 func runInit(args []string) error {
-	flags := flag.NewFlagSet("init", flag.ContinueOnError)
-	dir := flags.String("dir", ".", "data directory")
-	if err := flags.Parse(args); err != nil {
-		return err
+	command := newInitCommand()
+	command.SetArgs(args)
+	return command.Execute()
+}
+
+func newInitCommand() *cobra.Command {
+	var dir string
+	command := &cobra.Command{
+		Use:   "init",
+		Short: "生成初始配置文件",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return initDataDirectory(dir)
+		},
 	}
-	if flags.NArg() != 0 {
-		return fmt.Errorf("unexpected init arguments: %v", flags.Args())
-	}
-	data, err := renderExampleConfig(*dir)
+	command.Flags().StringVar(&dir, "dir", ".", "数据目录")
+	return command
+}
+
+func initDataDirectory(dir string) error {
+	data, err := renderExampleConfig(dir)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(*dir, 0o700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
 	}
-	configPath := filepath.Join(*dir, "config.yaml")
+	configPath := filepath.Join(dir, "config.yaml")
 	file, err := os.OpenFile(configPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create config: %w", err)

@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"strings"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/config"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/security"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/storage/runtime"
+	"github.com/spf13/cobra"
 )
 
 type pairingInfo struct {
@@ -19,12 +19,27 @@ type pairingInfo struct {
 }
 
 func runPairing(args []string) error {
-	flags := flag.NewFlagSet("pairing", flag.ContinueOnError)
-	configPath := flags.String("config", "config.yaml", "config path")
-	if err := flags.Parse(args); err != nil {
-		return err
+	command := newPairingCommand()
+	command.SetArgs(args)
+	return command.Execute()
+}
+
+func newPairingCommand() *cobra.Command {
+	var configPath string
+	command := &cobra.Command{
+		Use:   "pairing",
+		Short: "输出客户端配对信息",
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return printPairingInfo(configPath)
+		},
 	}
-	cfg, err := config.Load(*configPath)
+	command.Flags().StringVar(&configPath, "config", "config.yaml", "配置文件路径")
+	return command
+}
+
+func printPairingInfo(configPath string) error {
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
 	}

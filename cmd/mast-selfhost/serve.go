@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/app"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/config"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/security"
+	"github.com/spf13/cobra"
 )
 
 var version = "0.1.0"
@@ -26,10 +26,28 @@ func runServe(args []string) error {
 }
 
 func runServeContext(ctx context.Context, args []string) error {
-	path, err := serveConfigPath(args)
-	if err != nil {
-		return err
+	command := newServeCommand()
+	command.SetArgs(args)
+	command.SetContext(ctx)
+	return command.Execute()
+}
+
+func newServeCommand() *cobra.Command {
+	var dir string
+	command := &cobra.Command{
+		Use:   "serve",
+		Short: "启动自建查询服务",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return serveContext(command.Context(), dir)
+		},
 	}
+	command.Flags().StringVar(&dir, "dir", ".", "数据目录")
+	return command
+}
+
+func serveContext(ctx context.Context, dir string) error {
+	path := filepath.Join(dir, "config.yaml")
 	cfg, token, tlsConfig, err := prepareServe(path)
 	if err != nil {
 		return err
@@ -55,15 +73,18 @@ func runServeContext(ctx context.Context, args []string) error {
 }
 
 func serveConfigPath(args []string) (string, error) {
-	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
-	dir := flags.String("dir", ".", "data directory")
-	if err := flags.Parse(args); err != nil {
+	command := newServeCommand()
+	if err := command.ParseFlags(args); err != nil {
 		return "", err
 	}
-	if flags.NArg() != 0 {
-		return "", fmt.Errorf("unexpected serve arguments: %v", flags.Args())
+	if err := cobra.NoArgs(command, command.Flags().Args()); err != nil {
+		return "", err
 	}
-	return filepath.Join(*dir, "config.yaml"), nil
+	dir, err := command.Flags().GetString("dir")
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.yaml"), nil
 }
 
 func prepareServe(path string) (*config.Config, []byte, *tls.Config, error) {
