@@ -3,16 +3,16 @@ services:
     image: ghcr.io/pixel-tailor-cn/mast-selfhost:0.1.0
     restart: "no"
     volumes:
-      - mast-data:/data
-    command: ["init", "--dir", "/data", "--if-missing", "--listen", "0.0.0.0:8443", "--allow-insecure-private-network"]
+      - mast-data:/app/data
+    command: ["init", "--dir", "/app/data", "--if-missing", "--listen", "0.0.0.0:8443", "--allow-insecure-private-network", "--provider-id", "sogou"]
   mast-selfhost:
     image: ghcr.io/pixel-tailor-cn/mast-selfhost:0.1.0
     restart: unless-stopped
     ports:
       - "8443:8443"
     volumes:
-      - mast-data:/data
-    command: ["serve", "--dir", "/data"]
+      - mast-data:/app/data
+    command: ["serve", "--dir", "/app/data"]
     depends_on:
       mast-selfhost-init:
         condition: service_completed_successfully

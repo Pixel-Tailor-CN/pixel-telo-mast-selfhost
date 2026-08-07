@@ -337,6 +337,14 @@ func (r *Repository) GetMetadata(ctx context.Context, key string) (string, error
 	return value, nil
 }
 
+// DeleteMetadata 删除运行时元数据。
+func (r *Repository) DeleteMetadata(ctx context.Context, key string) error {
+	if _, err := r.db.ExecContext(ctx, `DELETE FROM runtime_metadata WHERE key = ?`, key); err != nil {
+		return fmt.Errorf("delete runtime metadata: %w", err)
+	}
+	return nil
+}
+
 // EnsureInstanceID 返回并持久化该实例唯一身份。
 func (r *Repository) EnsureInstanceID(ctx context.Context) (string, error) {
 	value, err := r.GetMetadata(ctx, "instance_id")

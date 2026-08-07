@@ -54,7 +54,16 @@ func Build(options Options) (*App, error) {
 	baseStore := baseline.NewStore()
 	cleanup := func() { _ = baseStore.Close(); _ = runtimeRepo.Close() }
 	if options.Config.Baseline.Enabled {
-		if activePath, metadataErr := runtimeRepo.GetMetadata(context.Background(), baselinesync.ActivePathMetadataKey); metadataErr == nil {
+		activePath, metadataErr := runtimeRepo.GetMetadata(context.Background(), baselinesync.ActivePathMetadataKey)
+		pendingPath, pendingErr := runtimeRepo.GetMetadata(context.Background(), "baseline_pending_path")
+		if pendingErr != nil && !errors.Is(pendingErr, queryDomain.ErrNotFound) {
+			cleanup()
+			return nil, fmt.Errorf("load baseline pending path: %w", pendingErr)
+		}
+		if pendingErr == nil {
+			activePath = pendingPath
+		}
+		if metadataErr == nil || pendingErr == nil {
 			activePath, err = filepath.Abs(activePath)
 			if err != nil {
 				cleanup()
@@ -64,6 +73,16 @@ func Build(options Options) (*App, error) {
 				if err := baseStore.Replace(activePath); err != nil {
 					cleanup()
 					return nil, fmt.Errorf("load baseline active snapshot: %w", err)
+				}
+				if pendingErr == nil {
+					if err := runtimeRepo.SetMetadata(context.Background(), baselinesync.ActivePathMetadataKey, activePath); err != nil {
+						cleanup()
+						return nil, fmt.Errorf("promote pending baseline path: %w", err)
+					}
+					if err := runtimeRepo.DeleteMetadata(context.Background(), "baseline_pending_path"); err != nil {
+						cleanup()
+						return nil, fmt.Errorf("clear pending baseline path: %w", err)
+					}
 				}
 			} else if !os.IsNotExist(err) {
 				cleanup()

@@ -24,6 +24,8 @@ type Manager struct {
 	instanceID    string
 	logger        *slog.Logger
 	metadata      MetadataStore
+	context       context.Context
+	cancel        context.CancelFunc
 
 	syncMu sync.Mutex
 	mu     sync.Mutex
@@ -32,10 +34,13 @@ type Manager struct {
 
 // MetadataStore 保存 baseline 当前指针等运行时元数据。
 type MetadataStore interface {
+	GetMetadata(context.Context, string) (string, error)
 	SetMetadata(context.Context, string, string) error
+	DeleteMetadata(context.Context, string) error
 }
 
 const ActivePathMetadataKey = "baseline_active_path"
+const pendingPathMetadataKey = "baseline_pending_path"
 
 // Options 配置 baseline 同步管理器。
 type Options struct {
@@ -61,7 +66,8 @@ func NewManager(options Options) (*Manager, error) {
 	if options.Logger == nil {
 		options.Logger = slog.Default()
 	}
-	return &Manager{client: options.Client, store: options.Store, activePath: options.ActivePath, checkInterval: options.CheckInterval, instanceID: options.InstanceID, logger: options.Logger, metadata: options.Metadata}, nil
+	managerContext, cancel := context.WithCancel(context.Background())
+	return &Manager{client: options.Client, store: options.Store, activePath: options.ActivePath, checkInterval: options.CheckInterval, instanceID: options.InstanceID, logger: options.Logger, metadata: options.Metadata, context: managerContext, cancel: cancel}, nil
 }
 
 func (m *Manager) Sync(ctx context.Context) error {
@@ -110,15 +116,24 @@ func (m *Manager) Sync(ctx context.Context) error {
 }
 
 func (m *Manager) Run(ctx context.Context) error {
+	runContext, stop := context.WithCancel(ctx)
+	defer stop()
+	go func() {
+		select {
+		case <-m.context.Done():
+			stop()
+		case <-runContext.Done():
+		}
+	}()
 	jitter := stableJitter(m.instanceID, m.checkInterval)
 	timer := time.NewTimer(m.checkInterval + jitter)
 	defer timer.Stop()
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-runContext.Done():
+			return runContext.Err()
 		case <-timer.C:
-			if err := m.Sync(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			if err := m.Sync(runContext); err != nil && !errors.Is(err, context.Canceled) {
 				m.logger.Error("baseline synchronization failed", "error", err)
 			}
 			timer.Reset(m.checkInterval + jitter)
@@ -134,6 +149,7 @@ func (m *Manager) Close() error {
 	}
 	m.closed = true
 	m.mu.Unlock()
+	m.cancel()
 	return nil
 }
 
@@ -188,16 +204,41 @@ func activateDatabase(ctx context.Context, store *baseline.Store, candidate, act
 		return fmt.Errorf("activate baseline file: %w", err)
 	}
 	if metadata != nil {
-		if err := metadata.SetMetadata(ctx, ActivePathMetadataKey, active); err != nil {
+		if err := metadata.SetMetadata(ctx, pendingPathMetadataKey, active); err != nil {
 			_ = os.Remove(active)
-			return fmt.Errorf("persist baseline active path: %w", err)
+			return fmt.Errorf("persist baseline pending path: %w", err)
 		}
 	}
 	if err := store.Replace(active); err != nil {
+		if metadata != nil {
+			_ = metadata.DeleteMetadata(context.Background(), pendingPathMetadataKey)
+		}
+		_ = os.Remove(active)
 		return fmt.Errorf("activate baseline store: %w", err)
+	}
+	if metadata != nil {
+		if err := metadata.SetMetadata(ctx, ActivePathMetadataKey, active); err != nil {
+			rollbackErr := rollbackStore(store, previous)
+			_ = metadata.DeleteMetadata(context.Background(), pendingPathMetadataKey)
+			_ = os.Remove(active)
+			if rollbackErr != nil {
+				return fmt.Errorf("persist baseline active path: %w; rollback store: %v", err, rollbackErr)
+			}
+			return fmt.Errorf("persist baseline active path: %w", err)
+		}
+		if err := metadata.DeleteMetadata(ctx, pendingPathMetadataKey); err != nil {
+			return fmt.Errorf("clear baseline pending path: %w", err)
+		}
 	}
 	if previous != "" && previous != active {
 		_ = os.Remove(previous)
 	}
 	return nil
+}
+
+func rollbackStore(store *baseline.Store, previous string) error {
+	if previous == "" {
+		return store.Clear()
+	}
+	return store.Replace(previous)
 }

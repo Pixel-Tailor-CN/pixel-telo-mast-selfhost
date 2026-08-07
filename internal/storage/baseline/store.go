@@ -69,6 +69,21 @@ func (s *Store) Replace(path string) error {
 	return nil
 }
 
+// Clear 清除当前活动 baseline。
+func (s *Store) Clear() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return errStoreClosed
+	}
+	previous := s.active
+	s.active = nil
+	if previous != nil {
+		return previous.db.Close()
+	}
+	return nil
+}
+
 // ActiveVersion 返回当前 baseline metadata 中的版本。
 func (s *Store) ActiveVersion() string {
 	s.mu.RLock()

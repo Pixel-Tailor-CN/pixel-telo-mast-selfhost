@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/config"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/security"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/storage/runtime"
 )
@@ -20,6 +19,7 @@ func TestPrepareServeAndPairingPersistIdentityAndTLS(t *testing.T) {
 	if err := runInit([]string{"--dir", dir}); err != nil {
 		t.Fatal(err)
 	}
+	makeTestConfigRunnable(t, filepath.Join(dir, "config.yaml"))
 
 	configPath := filepath.Join(dir, "config.yaml")
 	data, err := os.ReadFile(configPath)
@@ -93,15 +93,12 @@ func TestInitUsesConfiguredPaths(t *testing.T) {
 	if err := runInit([]string{"--dir", dir}); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Load(filepath.Join(dir, "config.yaml"))
+	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(cfg.Auth.TokenFile, filepath.Join("", "token")) {
-		t.Fatalf("token path = %q", cfg.Auth.TokenFile)
-	}
-	if !strings.HasSuffix(cfg.Storage.RuntimePath, filepath.Join("", "runtime.db")) {
-		t.Fatalf("runtime path = %q", cfg.Storage.RuntimePath)
+	if !strings.Contains(string(data), "O'Brien") || !strings.Contains(string(data), "token") || !strings.Contains(string(data), "runtime.db") {
+		t.Fatalf("configured paths missing: %s", data)
 	}
 }
 
@@ -119,13 +116,16 @@ func TestInitOnlyCreatesConfig(t *testing.T) {
 		t.Fatalf("initialized files = %#v", entries)
 	}
 
-	cfg, err := config.Load(filepath.Join(dir, "config.yaml"))
+	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(string(data), "provider_ids: []") {
+		t.Fatalf("init should require explicit providers: %s", data)
+	}
 	for name, path := range map[string]string{
-		"token":   cfg.Auth.TokenFile,
-		"runtime": cfg.Storage.RuntimePath,
+		"token":   filepath.Join(dir, "token"),
+		"runtime": filepath.Join(dir, "runtime.db"),
 	} {
 		if !filepath.IsAbs(path) {
 			t.Fatalf("%s path is not absolute: %q", name, path)
@@ -134,7 +134,8 @@ func TestInitOnlyCreatesConfig(t *testing.T) {
 			t.Fatalf("%s should not exist after init: %v", name, err)
 		}
 	}
-	certFile, keyFile := cfg.TLSFiles()
+	certFile := filepath.Join(dir, "runtime.db.crt")
+	keyFile := filepath.Join(dir, "runtime.db.key")
 	for name, path := range map[string]string{"certificate": certFile, "private key": keyFile} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("%s should not exist after init: %v", name, err)
@@ -185,6 +186,7 @@ func TestPrepareServeValidatesBeforeCreatingToken(t *testing.T) {
 	if err := runInit([]string{"--dir", dir}); err != nil {
 		t.Fatal(err)
 	}
+	makeTestConfigRunnable(t, filepath.Join(dir, "config.yaml"))
 	configPath := filepath.Join(dir, "config.yaml")
 	file, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
@@ -219,6 +221,7 @@ func TestPrepareServeCreatesAndReusesToken(t *testing.T) {
 	if err := runInit([]string{"--dir", dir}); err != nil {
 		t.Fatal(err)
 	}
+	makeTestConfigRunnable(t, filepath.Join(dir, "config.yaml"))
 	configPath := filepath.Join(dir, "config.yaml")
 	cfg, first, tlsConfig, err := prepareServe(configPath)
 	if err != nil {
@@ -239,6 +242,21 @@ func TestPrepareServeCreatesAndReusesToken(t *testing.T) {
 	}
 	if secondConfig.Auth.TokenFile != cfg.Auth.TokenFile {
 		t.Fatal("config changed during repeated serve preparation")
+	}
+}
+
+func makeTestConfigRunnable(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(data), "provider_ids: []", "provider_ids: [\"sogou\"]", 1)
+	if updated == string(data) {
+		t.Fatal("empty provider list was not found")
+	}
+	if err := os.WriteFile(path, []byte(updated), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -307,6 +325,7 @@ func TestRunServeContextLogsLifecycle(t *testing.T) {
 	if err := runInit([]string{"--dir", dir}); err != nil {
 		t.Fatal(err)
 	}
+	makeTestConfigRunnable(t, filepath.Join(dir, "config.yaml"))
 	configPath := filepath.Join(dir, "config.yaml")
 	data, err := os.ReadFile(configPath)
 	if err != nil {

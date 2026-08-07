@@ -11,7 +11,7 @@ tls:
 storage:
   runtime_path: {{.RuntimePath}}
 baseline:
-  enabled: false
+  enabled: true
   sync_on_start: false
   check_interval: "24h"
 query:
@@ -21,8 +21,9 @@ rate_limit:
   requests_per_second: 1
   burst: 5
 upstream:
-  provider_ids:
-    - "sogou"
+  # 必须显式填写已获部署者授权使用的 Provider，例如：
+  # 通过 init --provider-id 显式选择已获授权的 Provider。
+  provider_ids: {{.ProviderIDs}}
 providers: {}
 log:
   level: "info"

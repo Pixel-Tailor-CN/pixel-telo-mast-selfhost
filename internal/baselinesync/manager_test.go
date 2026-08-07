@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/storage/baseline"
 	_ "github.com/glebarez/go-sqlite"
@@ -25,11 +26,24 @@ type fakeClient struct {
 
 type metadataRecorder struct{ values map[string]string }
 
+func (m *metadataRecorder) GetMetadata(_ context.Context, key string) (string, error) {
+	value, ok := m.values[key]
+	if !ok {
+		return "", errors.New("metadata not found")
+	}
+	return value, nil
+}
+
 func (m *metadataRecorder) SetMetadata(_ context.Context, key, value string) error {
 	if m.values == nil {
 		m.values = make(map[string]string)
 	}
 	m.values[key] = value
+	return nil
+}
+
+func (m *metadataRecorder) DeleteMetadata(_ context.Context, key string) error {
+	delete(m.values, key)
 	return nil
 }
 
@@ -63,6 +77,33 @@ func TestSyncFailureKeepsPreviousDatabase(t *testing.T) {
 	}
 	if got := store.ActiveVersion(); got != "20260729000000" {
 		t.Fatalf("active version = %s", got)
+	}
+}
+
+func TestCloseStopsPeriodicRun(t *testing.T) {
+	store := baseline.NewStore()
+	defer store.Close()
+	manager, err := NewManager(Options{
+		Client:        &fakeClient{},
+		Store:         store,
+		ActivePath:    filepath.Join(t.TempDir(), "baseline.db"),
+		CheckInterval: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- manager.Run(context.Background()) }()
+	if err := manager.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("run error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("manager run did not stop after close")
 	}
 }
 
