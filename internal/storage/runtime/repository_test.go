@@ -216,7 +216,10 @@ func TestSQLiteFileURIEscapesPathCharacters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantPath := "/" + filepath.ToSlash(path)
+	wantPath := filepath.ToSlash(path)
+	if !strings.HasPrefix(wantPath, "/") {
+		wantPath = "/" + wantPath
+	}
 	if parsed.Path != wantPath {
 		t.Fatalf("URI path = %q, want %q", parsed.Path, wantPath)
 	}

@@ -7,7 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: gitleaks/gitleaks-action@v2
+      - name: Scan repository for secrets
+        run: docker run --rm -v "${{ github.workspace }}:/repo:ro" zricethezav/gitleaks:v8.30.1 detect --source=/repo --redact --no-banner
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.5'
