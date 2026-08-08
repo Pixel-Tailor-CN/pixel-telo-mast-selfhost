@@ -94,7 +94,8 @@ func parseSogouCard(body []byte, phone string) (string, error) {
 		matched = true
 	})
 	if !matched {
-		return "", fmt.Errorf("%w: sogou response does not contain a matching phone card", domain.ErrUpstreamUnavailable)
+		// 兼容 Mast 既有语义：成功页面未命中号码卡时按普通号码处理。
+		return "", nil
 	}
 	return label, nil
 }

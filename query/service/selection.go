@@ -78,12 +78,6 @@ func selectAvailableResult(sources []string, records map[string]*domain.Record) 
 }
 
 func firstLookupError(ctx context.Context, errMap map[string]error) error {
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return domain.ErrUpstreamTimeout
-	}
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
 	var (
 		firstErr    error
 		rateLimited bool
@@ -107,6 +101,12 @@ func firstLookupError(ctx context.Context, errMap map[string]error) error {
 	}
 	if rateLimited {
 		return domain.ErrRateLimited
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return domain.ErrUpstreamTimeout
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	if timedOut {
 		return domain.ErrUpstreamTimeout

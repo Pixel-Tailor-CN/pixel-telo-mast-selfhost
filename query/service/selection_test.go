@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/domain"
 )
@@ -42,4 +43,40 @@ func TestFirstLookupErrorAlwaysPrioritizesRateLimitOverTimeout(t *testing.T) {
 			t.Fatalf("error = %v, want ErrRateLimited", got)
 		}
 	}
+}
+
+func TestFirstLookupErrorPrioritizesRateLimitWhenQueryContextExpired(t *testing.T) {
+	tests := []struct {
+		name string
+		ctx  context.Context
+	}{
+		{name: "整体超时", ctx: expiredContext(t)},
+		{name: "请求取消", ctx: canceledContext(t)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := firstLookupError(tt.ctx, map[string]error{
+				"sogou": domain.ErrRateLimited,
+				"360":   domain.ErrUpstreamTimeout,
+			})
+			if !errors.Is(got, domain.ErrRateLimited) {
+				t.Fatalf("error = %v, want ErrRateLimited", got)
+			}
+		})
+	}
+}
+
+func expiredContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithDeadline(context.Background(), time.Unix(0, 0))
+	t.Cleanup(cancel)
+	return ctx
+}
+
+func canceledContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	t.Cleanup(cancel)
+	return ctx
 }
