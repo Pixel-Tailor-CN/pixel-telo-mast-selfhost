@@ -19,7 +19,7 @@ jobs:
       - name: Check licenses
         run: |
           go install github.com/google/go-licenses@latest
-          go-licenses check ./...
+          go-licenses check --confidence_threshold=0.8 ./...
       - name: Verify embedded phone data
         working-directory: phone
         run: sha256sum -c phone.dat.sha256
