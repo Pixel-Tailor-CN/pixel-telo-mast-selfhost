@@ -106,14 +106,23 @@ jobs:
         with:
           files: dist/*
 
-  docker:
-    name: Publish multi-architecture image
+  docker-build:
+    name: Build image ${{ matrix.platform }}
     needs: package
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            artifact: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            artifact: arm64
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
-      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -128,25 +137,95 @@ jobs:
           registry: docker.io
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
-      - uses: docker/metadata-action@v5
-        id: metadata
-        with:
-          images: |
-            ${{ env.GHCR_IMAGE }}
-            ${{ env.DOCKERHUB_IMAGE }}
-          tags: |
-            type=ref,event=tag
-      - name: Build and push image
+      - name: Build and push platform image
         id: build-image
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,"name=${{ env.GHCR_IMAGE }},${{ env.DOCKERHUB_IMAGE }}",push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
+      - name: Export image digest
+        env:
+          DIGEST: ${{ steps.build-image.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-digest-${{ matrix.artifact }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  docker-publish:
+    name: Publish multi-architecture image
+    needs: docker-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-digest-*
+          merge-multiple: true
+          path: /tmp/digests
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Create multi-architecture manifests
+        run: |
+          mapfile -t digest_files < <(find /tmp/digests -maxdepth 1 -type f -print | sort)
+          test "${#digest_files[@]}" -eq 2
+
+          for image in "${GHCR_IMAGE}" "${DOCKERHUB_IMAGE}"; do
+            references=()
+            for digest_file in "${digest_files[@]}"; do
+              references+=("${image}@sha256:${digest_file##*/}")
+            done
+            docker buildx imagetools create \
+              --tag "${image}:${GITHUB_REF_NAME}" \
+              --tag "${image}:latest" \
+              "${references[@]}"
+          done
+      - name: Verify registry digests
+        id: registry-digests
+        run: |
+          ghcr_digest=$(docker buildx imagetools inspect \
+            "${GHCR_IMAGE}:${GITHUB_REF_NAME}" \
+            --format '{{json .Manifest}}' | jq -r '.digest')
+          dockerhub_digest=$(docker buildx imagetools inspect \
+            "${DOCKERHUB_IMAGE}:${GITHUB_REF_NAME}" \
+            --format '{{json .Manifest}}' | jq -r '.digest')
+          ghcr_latest_digest=$(docker buildx imagetools inspect \
+            "${GHCR_IMAGE}:latest" \
+            --format '{{json .Manifest}}' | jq -r '.digest')
+          dockerhub_latest_digest=$(docker buildx imagetools inspect \
+            "${DOCKERHUB_IMAGE}:latest" \
+            --format '{{json .Manifest}}' | jq -r '.digest')
+
+          test -n "${ghcr_digest}" && test "${ghcr_digest}" != "null"
+          test -n "${dockerhub_digest}" && test "${dockerhub_digest}" != "null"
+          test -n "${ghcr_latest_digest}" && test "${ghcr_latest_digest}" != "null"
+          test -n "${dockerhub_latest_digest}" && test "${dockerhub_latest_digest}" != "null"
+          test "${ghcr_digest}" = "${dockerhub_digest}"
+          test "${ghcr_digest}" = "${ghcr_latest_digest}"
+          test "${ghcr_digest}" = "${dockerhub_latest_digest}"
+
+          echo "ghcr=${ghcr_digest}" >> "${GITHUB_OUTPUT}"
+          echo "dockerhub=${dockerhub_digest}" >> "${GITHUB_OUTPUT}"
       - name: Verify image version and health endpoint
         env:
           IMAGE: ${{ env.GHCR_IMAGE }}:${{ github.ref_name }}
@@ -164,11 +243,8 @@ jobs:
       - uses: sigstore/cosign-installer@v3
       - name: Sign images
         env:
-          DIGEST: ${{ steps.build-image.outputs.digest }}
+          GHCR_DIGEST: ${{ steps.registry-digests.outputs.ghcr }}
+          DOCKERHUB_DIGEST: ${{ steps.registry-digests.outputs.dockerhub }}
         run: |
-          for image in \
-            "${GHCR_IMAGE}" \
-            "${DOCKERHUB_IMAGE}"
-          do
-            cosign sign --yes "${image}@${DIGEST}"
-          done
+          cosign sign --yes "${GHCR_IMAGE}@${GHCR_DIGEST}"
+          cosign sign --yes "${DOCKERHUB_IMAGE}@${DOCKERHUB_DIGEST}"
