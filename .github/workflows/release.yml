@@ -197,6 +197,7 @@ jobs:
             done
             docker buildx imagetools create \
               --tag "${image}:${GITHUB_REF_NAME}" \
+              --tag "${image}:latest" \
               "${references[@]}"
           done
       - name: Verify registry digests
@@ -208,10 +209,20 @@ jobs:
           dockerhub_digest=$(docker buildx imagetools inspect \
             "${DOCKERHUB_IMAGE}:${GITHUB_REF_NAME}" \
             --format '{{json .Manifest}}' | jq -r '.digest')
+          ghcr_latest_digest=$(docker buildx imagetools inspect \
+            "${GHCR_IMAGE}:latest" \
+            --format '{{json .Manifest}}' | jq -r '.digest')
+          dockerhub_latest_digest=$(docker buildx imagetools inspect \
+            "${DOCKERHUB_IMAGE}:latest" \
+            --format '{{json .Manifest}}' | jq -r '.digest')
 
           test -n "${ghcr_digest}" && test "${ghcr_digest}" != "null"
           test -n "${dockerhub_digest}" && test "${dockerhub_digest}" != "null"
+          test -n "${ghcr_latest_digest}" && test "${ghcr_latest_digest}" != "null"
+          test -n "${dockerhub_latest_digest}" && test "${dockerhub_latest_digest}" != "null"
           test "${ghcr_digest}" = "${dockerhub_digest}"
+          test "${ghcr_digest}" = "${ghcr_latest_digest}"
+          test "${ghcr_digest}" = "${dockerhub_latest_digest}"
 
           echo "ghcr=${ghcr_digest}" >> "${GITHUB_OUTPUT}"
           echo "dockerhub=${dockerhub_digest}" >> "${GITHUB_OUTPUT}"
