@@ -6,26 +6,46 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/phone"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/domain"
 )
 
-type recordResponse struct {
-	PhoneNumber string `json:"phone_number"`
-	Tag         string `json:"tag"`
-	Source      string `json:"source"`
-	Confidence  int64  `json:"confidence"`
+type phoneDataResponse struct {
+	CardType string `json:"cardType"`
+	Province string `json:"province"`
+	City     string `json:"city"`
 }
 
 type queryResponse struct {
-	Record           *recordResponse `json:"record"`
-	QueryMode        string          `json:"query_mode"`
-	RequestedSources []string        `json:"requested_sources,omitempty"`
-	EffectiveSources []string        `json:"effective_sources,omitempty"`
-	InvalidSources   []string        `json:"invalid_sources,omitempty"`
+	Phone            string             `json:"phone"`
+	IsSpam           bool               `json:"is_spam"`
+	Tag              string             `json:"tag"`
+	Confidence       int64              `json:"confidence"`
+	Source           string             `json:"source"`
+	Data             *phoneDataResponse `json:"data"`
+	QueryMode        string             `json:"query_mode"`
+	RequestedSources []string           `json:"requested_sources,omitempty"`
+	EffectiveSources []string           `json:"effective_sources,omitempty"`
+	InvalidSources   []string           `json:"invalid_sources,omitempty"`
 }
 
-func makeQueryResponse(result *domain.LookupResult) queryResponse {
-	return queryResponse{Record: &recordResponse{PhoneNumber: result.Record.PhoneNumber, Tag: result.Record.Tag, Source: result.Record.Source, Confidence: result.Record.Confidence}, QueryMode: string(result.QueryMode), RequestedSources: result.RequestedSources, EffectiveSources: result.EffectiveSources, InvalidSources: result.InvalidSources}
+func makeQueryResponse(result *domain.LookupResult, phoneRecord *phone.Record) queryResponse {
+	var data *phoneDataResponse
+	if phoneRecord != nil {
+		data = &phoneDataResponse{CardType: phoneRecord.CardType, Province: phoneRecord.Province, City: phoneRecord.City}
+	}
+	return queryResponse{
+		Phone:            result.Record.PhoneNumber,
+		IsSpam:           result.Record.Confidence > 50,
+		Tag:              result.Record.Tag,
+		Confidence:       result.Record.Confidence,
+		Source:           result.Record.Source,
+		Data:             data,
+		QueryMode:        string(result.QueryMode),
+		RequestedSources: result.RequestedSources,
+		EffectiveSources: result.EffectiveSources,
+		InvalidSources:   result.InvalidSources,
+	}
 }
 
 func errorStatus(err error) (int, string) {

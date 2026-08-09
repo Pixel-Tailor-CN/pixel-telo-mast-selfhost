@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -118,5 +119,67 @@ func TestQueryV2OmitsFeedbackToken(t *testing.T) {
 	}
 	if bytes.Contains(recorder.Body.Bytes(), []byte("feedback_token")) {
 		t.Fatalf("response contains feedback_token: %s", recorder.Body.String())
+	}
+}
+
+func TestQueryV2UsesFlatAppCompatibleResponse(t *testing.T) {
+	router := gin.New()
+	testHandler(t).Register(router)
+	request := httptest.NewRequest(http.MethodPost, "/api/v2/query", bytes.NewBufferString(`{"number":"13800138000","sources":["unknown","sogou"]}`))
+	request.Header.Set("Authorization", "Bearer "+string(bytes.Repeat([]byte("t"), 32)))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := response["record"]; exists {
+		t.Fatalf("response contains legacy record: %s", recorder.Body.String())
+	}
+	for _, field := range []string{"phone", "is_spam", "tag", "confidence", "source", "data", "query_mode", "requested_sources", "effective_sources"} {
+		if _, exists := response[field]; !exists {
+			t.Fatalf("response does not contain %q: %s", field, recorder.Body.String())
+		}
+	}
+	if response["phone"] != "13800138000" || response["is_spam"] != true || response["tag"] != "营销" || response["source"] != "sogou" {
+		t.Fatalf("response = %#v", response)
+	}
+	invalidSources, ok := response["invalid_sources"].([]any)
+	if !ok || len(invalidSources) != 1 || invalidSources[0] != "unknown" {
+		t.Fatalf("invalid_sources = %#v", response["invalid_sources"])
+	}
+	data, ok := response["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("data = %#v", response["data"])
+	}
+	for _, field := range []string{"cardType", "province", "city"} {
+		if _, exists := data[field]; !exists {
+			t.Fatalf("data does not contain %q: %#v", field, data)
+		}
+	}
+}
+
+func TestQueryV2ReturnsNullForMissingPhoneData(t *testing.T) {
+	router := gin.New()
+	testHandler(t).Register(router)
+	request := httptest.NewRequest(http.MethodPost, "/api/v2/query", bytes.NewBufferString(`{"number":"1234567","sources":["sogou"]}`))
+	request.Header.Set("Authorization", "Bearer "+string(bytes.Repeat([]byte("t"), 32)))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	data, exists := response["data"]
+	if !exists || data != nil {
+		t.Fatalf("data = %#v, body = %s", data, recorder.Body.String())
 	}
 }

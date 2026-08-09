@@ -4,10 +4,13 @@ import (
 	"net/http"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/security"
+	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/phone"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+var embeddedPhoneFinder = phone.NewFinder()
 
 type Handler struct {
 	Service      *service.Service
@@ -53,7 +56,7 @@ func (h *Handler) queryV2(c *gin.Context) {
 		h.writeServiceError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, makeQueryResponse(result))
+	c.JSON(http.StatusOK, makeQueryResponse(result, embeddedPhoneFinder.Find(result.Record.PhoneNumber)))
 }
 
 func (h *Handler) writeServiceError(c *gin.Context, err error) {
