@@ -48,7 +48,7 @@ func TestSelfHostRouteSetExcludesFeedbackAndMetrics(t *testing.T) {
 	for _, route := range router.Routes() {
 		seen[route.Method+" "+route.Path] = true
 	}
-	want := []string{"GET /api/health", "GET /api/selfhost/v1/info", "GET /api/v2/sources", "POST /api/v2/query"}
+	want := []string{"GET /", "GET /api/health", "GET /api/selfhost/v1/info", "GET /api/v2/sources", "POST /api/v2/query"}
 	if len(seen) != len(want) {
 		t.Fatalf("routes = %#v", seen)
 	}
@@ -59,6 +59,38 @@ func TestSelfHostRouteSetExcludesFeedbackAndMetrics(t *testing.T) {
 	}
 	if seen["POST /api/v2/query/feedback"] || seen["GET /metrics"] {
 		t.Fatal("forbidden route registered")
+	}
+}
+
+func TestHomePageIsPublicAndShowsRuntimeSummary(t *testing.T) {
+	router := gin.New()
+	handler := testHandler(t)
+	handler.Headers.InstanceID = "private-instance-id"
+	handler.BuildCommit = "private-build-commit"
+	handler.Register(router)
+
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if contentType := recorder.Header().Get("Content-Type"); contentType != "text/html; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", contentType)
+	}
+	for _, expected := range []string{"Pixel Telo Mast Self-host", "运行正常", "1.0.0", "API 版本", "2", "sogou"} {
+		if !bytes.Contains(recorder.Body.Bytes(), []byte(expected)) {
+			t.Fatalf("page does not contain %q", expected)
+		}
+	}
+	for _, sensitive := range []string{"private-instance-id", "private-build-commit", string(handler.Token)} {
+		if bytes.Contains(recorder.Body.Bytes(), []byte(sensitive)) {
+			t.Fatalf("page contains sensitive value %q", sensitive)
+		}
+	}
+	if recorder.Header().Get("Content-Security-Policy") == "" {
+		t.Fatal("Content-Security-Policy is missing")
 	}
 }
 

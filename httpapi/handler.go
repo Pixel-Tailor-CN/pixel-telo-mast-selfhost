@@ -22,6 +22,7 @@ func (h *Handler) Register(router *gin.Engine) {
 	if h.Limiter == nil {
 		h.Limiter = security.NewQueryLimiter(1, 5, 4)
 	}
+	router.GET("/", h.home)
 	router.GET("/api/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 	authenticated := router.Group("/api", h.Headers.Middleware(), security.Bearer(h.Token))
 	authenticated.GET("/selfhost/v1/info", h.info)
