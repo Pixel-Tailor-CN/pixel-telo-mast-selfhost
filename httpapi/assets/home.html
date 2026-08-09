@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Pixel Telo Mast Self-host</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, "Noto Sans SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { min-width: 320px; min-height: 100vh; margin: 0; color: #f1f5f9; background: radial-gradient(ellipse 75% 60% at 50% 48%, #0a1b2e 0%, #061222 48%, #030a13 100%); }
+    a { color: inherit; text-decoration: none; }
+    svg { display: block; }
+    .topbar { height: 104px; border-bottom: 1px solid rgba(84, 110, 137, .15); background: rgba(2, 8, 16, .7); }
+    .topbar-inner { width: min(1370px, calc(100% - 72px)); height: 100%; margin: auto; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
+    .brand { display: flex; align-items: center; gap: 18px; font-size: 23px; font-weight: 760; letter-spacing: -.02em; white-space: nowrap; }
+    .brand-mark { color: #20d89a; }
+    .nav { align-self: stretch; display: flex; align-items: center; gap: 60px; }
+    .nav a { height: 100%; display: flex; align-items: center; position: relative; color: #aeb7c5; font-size: 18px; }
+    .nav a.active { color: #22d89b; font-weight: 700; }
+    .nav a.active::after { content: ""; position: absolute; right: -12px; bottom: 0; left: -12px; height: 3px; background: #22d89b; }
+    .external { margin-left: 4px; font-size: 14px; transform: translateY(-2px); }
+    .runtime { justify-self: end; display: flex; align-items: center; gap: 15px; padding: 15px 24px; border: 1px solid #243246; border-radius: 12px; color: #d7dee8; font-size: 18px; }
+    .runtime-dot { width: 13px; height: 13px; border-radius: 50%; background: #26d69b; box-shadow: inset 0 0 0 1px #43e4ae, 0 0 14px rgba(38, 214, 155, .25); }
+    main { width: min(1240px, calc(100% - 64px)); margin: 0 auto; padding: 174px 0 78px; }
+    .hero { max-width: 890px; }
+    h1 { margin: 0; display: flex; align-items: center; gap: 24px; font-size: clamp(38px, 4.2vw, 59px); line-height: 1.12; letter-spacing: -.035em; }
+    .shield { flex: 0 0 auto; color: #27d99d; filter: drop-shadow(0 0 16px rgba(39, 217, 157, .15)); }
+    .lead { margin: 28px 0 31px; color: #aeb8c8; font-size: clamp(17px, 1.7vw, 24px); line-height: 1.85; }
+    .actions { display: flex; flex-wrap: wrap; gap: 24px; }
+    .button { min-width: 194px; height: 64px; padding: 0 28px; display: inline-flex; align-items: center; justify-content: center; gap: 17px; border: 1px solid #2b3b50; border-radius: 13px; font-size: 19px; font-weight: 700; transition: transform .18s ease, border-color .18s ease; }
+    .button:hover { transform: translateY(-2px); border-color: #3e5875; }
+    .button-primary { border-color: #23d69a; color: #fff; background: linear-gradient(135deg, #23daa0, #12b985); box-shadow: 0 14px 34px rgba(16, 185, 129, .12); }
+    .button-primary:hover { border-color: #55ebbb; }
+    .cards { margin-top: 59px; display: grid; grid-template-columns: 1fr 1fr 1.22fr; gap: 25px; }
+    .card { min-height: 205px; padding: 33px 30px; display: flex; align-items: flex-start; gap: 27px; border: 1px solid #293a50; border-radius: 18px; background: linear-gradient(135deg, rgba(15, 31, 49, .7), rgba(7, 18, 31, .55)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .012); }
+    .card-icon { width: 69px; height: 69px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid #27415f; border-radius: 15px; color: #54aaff; background: rgba(7, 20, 35, .42); }
+    .card-icon.green { color: #20d49a; border-color: #195b52; }
+    .card-icon.white { color: #eef3f8; border-color: #304157; }
+    .card-content { min-width: 0; padding-top: 8px; }
+    .card-label { color: #aab4c4; font-size: 20px; }
+    .card-value { margin-top: 17px; font-size: 31px; font-weight: 760; letter-spacing: -.02em; }
+    .badges { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 12px; }
+    .badge { padding: 8px 19px; border: 1px solid #1a936b; border-radius: 999px; color: #eafff7; background: linear-gradient(135deg, #075d46, #073f34); font-size: 17px; font-weight: 650; }
+    .empty { color: #7f8b9b; font-size: 17px; }
+    .notice { min-height: 88px; margin-top: 65px; padding: 22px 24px; display: flex; align-items: center; gap: 26px; border: 1px solid #203148; border-radius: 15px; color: #9da9bb; background: rgba(7, 17, 29, .56); font-size: 17px; line-height: 1.65; }
+    .notice-icon { flex: 0 0 auto; color: #2fc4ae; }
+    @media (max-width: 900px) {
+      .topbar { height: auto; }
+      .topbar-inner { width: min(100% - 36px, 720px); padding: 20px 0; grid-template-columns: 1fr auto; gap: 20px; }
+      .nav { grid-column: 1 / -1; grid-row: 2; justify-self: center; height: 48px; }
+      .runtime { padding: 11px 15px; font-size: 15px; }
+      main { width: min(100% - 36px, 720px); padding-top: 86px; }
+      .cards { grid-template-columns: 1fr 1fr; }
+      .card:last-child { grid-column: 1 / -1; }
+    }
+    @media (max-width: 580px) {
+      .topbar-inner { display: flex; flex-wrap: wrap; }
+      .brand { width: 100%; font-size: 19px; }
+      .brand-mark { width: 40px; height: 40px; }
+      .runtime { margin-left: auto; }
+      .nav { order: 3; width: 100%; justify-content: center; gap: 54px; }
+      main { padding-top: 64px; padding-bottom: 40px; }
+      h1 { align-items: flex-start; gap: 15px; }
+      .shield { width: 44px; height: 52px; margin-top: 3px; }
+      .lead { line-height: 1.7; }
+      .actions, .button { width: 100%; }
+      .cards { grid-template-columns: 1fr; margin-top: 42px; }
+      .card, .card:last-child { grid-column: auto; min-height: 170px; }
+      .notice { margin-top: 38px; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/" aria-label="Pixel Telo Mast Self-host 首页">
+        <svg class="brand-mark" width="44" height="48" viewBox="0 0 44 48" aria-hidden="true"><path d="M22 2 40 12v24L22 46 4 36V12L22 2Zm0 5.5L9 14.7v18.6l13 7.2 13-7.2V14.7L22 7.5Zm0 3.8 10 5.6v11.3L22 34l-10-5.8V16.9l10-5.6Zm0 5.3-5.5 3.1V26l5.5 3.2 5.5-3.2v-6.3L22 16.6Z" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+        <span>Pixel Telo Mast Self-host</span>
+      </a>
+      <nav class="nav" aria-label="主导航">
+        <a class="active" href="/">概览</a>
+        <a href="{{.DeploymentURL}}">部署 <span class="external">↗</span></a>
+      </nav>
+      <div class="runtime"><span class="runtime-dot" aria-hidden="true"></span>运行正常</div>
+    </div>
+  </header>
+  <main>
+    <section class="hero">
+      <h1>
+        <svg class="shield" width="47" height="55" viewBox="0 0 47 55" aria-hidden="true"><defs><linearGradient id="shield-gradient" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#46e6b3"/><stop offset="1" stop-color="#09aa79"/></linearGradient></defs><path d="M23.5 1 44 8.5v15.2c0 13.4-8.2 23.9-20.5 30.3C11.2 47.6 3 37.1 3 23.7V8.5L23.5 1Z" fill="url(#shield-gradient)"/><circle cx="23.5" cy="25" r="8" fill="#05291f"/></svg>
+        <span>Pixel Telo Mast Self-host</span>
+      </h1>
+      <p class="lead">独立部署的实时号码标记查询服务，仅查询本地显式启用的 Provider，<br>不会将实时查询转发到官方 Mast。</p>
+      <div class="actions">
+        <a class="button button-primary" href="/api/health">
+          <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M2 14h5l2.7-8 4.4 15 3.1-10 2 3H24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          健康检查
+        </a>
+        <a class="button" href="{{.RepositoryURL}}">
+          <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.86c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.35 1.09 2.92.83.09-.65.35-1.09.64-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.55 9.55 0 0 1 12 7.03c.85 0 1.7.11 2.5.34 1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2.2Z" fill="currentColor"/></svg>
+          查看仓库
+        </a>
+      </div>
+    </section>
+
+    <section class="cards" aria-label="实例信息">
+      <article class="card">
+        <div class="card-icon"><svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><rect x="4" y="5" width="26" height="7" rx="2.5" fill="currentColor"/><rect x="4" y="14" width="26" height="7" rx="2.5" fill="currentColor"/><rect x="4" y="23" width="26" height="7" rx="2.5" fill="currentColor"/><circle cx="9" cy="8.5" r="1.5" fill="#071727"/><circle cx="9" cy="17.5" r="1.5" fill="#071727"/><circle cx="9" cy="26.5" r="1.5" fill="#071727"/></svg></div>
+        <div class="card-content"><div class="card-label">服务版本</div><div class="card-value">{{.Version}}</div></div>
+      </article>
+      <article class="card">
+        <div class="card-icon green"><svg width="38" height="34" viewBox="0 0 38 34" aria-hidden="true"><path d="m13 7-8 10 8 10M25 7l8 10-8 10M22 4l-7 26" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="card-content"><div class="card-label">API 版本</div><div class="card-value">{{.APIVersion}}</div></div>
+      </article>
+      <article class="card">
+        <div class="card-icon white"><svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true"><ellipse cx="18" cy="8" rx="11" ry="5" fill="none" stroke="currentColor" stroke-width="2.8"/><path d="M7 8v10c0 2.8 4.9 5 11 5s11-2.2 11-5V8M7 18v10c0 2.8 4.9 5 11 5s11-2.2 11-5V18" fill="none" stroke="currentColor" stroke-width="2.8"/></svg></div>
+        <div class="card-content">
+          <div class="card-label">已启用 Provider</div>
+          <div class="badges">{{range .Sources}}<span class="badge">{{.}}</span>{{else}}<span class="empty">未配置</span>{{end}}</div>
+        </div>
+      </article>
+    </section>
+
+    <aside class="notice">
+      <svg class="notice-icon" width="39" height="39" viewBox="0 0 39 39" aria-hidden="true"><circle cx="19.5" cy="19.5" r="16.5" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M19.5 17v11M19.5 11.5v.5" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+      <span>页面可访问表示 Self-host HTTP 服务正在运行；数据源名称不代表上游当前一定可用，号码段数据可能过时或不完整。</span>
+    </aside>
+  </main>
+</body>
+</html>
+
