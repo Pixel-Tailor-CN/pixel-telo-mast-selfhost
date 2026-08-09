@@ -28,3 +28,12 @@ providers: {}
 log:
   level: "info"
   format: "json"
+  rotation:
+    max_size_mb: 100
+    daily: true
+    local_time: true
+    compress: true
+  retention:
+    max_age: "720h"
+    max_backups: 30
+    max_total_size_mb: 1024

@@ -33,7 +33,7 @@ mast-selfhost pairing --dir /data
 
 `init` 只从二进制内嵌模板生成 `config.yaml`，不会生成 Token、TLS 证书、Runtime 数据库或实例身份，且不会覆盖已有配置。`init` 不是必需步骤；手工编写完整且有效的配置后可以直接运行 `serve`。`serve` 会先检查并严格校验配置，再在首次启动时生成缺失的 Token 和 `tls.mode=auto` 所需证书。
 
-`serve` 默认使用 Gin Release Mode，并通过 `slog` 输出配置加载、开始监听、启动成功、收到关闭信号和停止完成日志。服务不启用 Gin 访问日志 Middleware，避免请求信息进入日志。
+`serve` 默认使用 Gin Release Mode，并通过 `slog` 输出生命周期日志和安全访问日志。文件日志固定写入 `<dir>/logs/mast.log` 并自动轮转；控制台只输出 WARN 和 ERROR。访问日志不记录原始 URL/query、Header 或请求体。
 
 服务端只使用配置中显式列出的 `upstream.provider_ids`，实时查询不会请求官方 Mast 查询地址。
 `baseline.enabled` 可选用固定官方 HTTPS 地址同步离线库；启用 `sync_on_start` 时同步失败会阻止 HTTP

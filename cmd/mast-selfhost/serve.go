@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,11 +13,12 @@ import (
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/app"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/config"
+	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/logging"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/security"
 	"github.com/spf13/cobra"
 )
 
-var version = "0.1.0"
+var version = "1.0.0"
 var commit = "unknown"
 
 func runServe(args []string) error {
@@ -46,12 +48,22 @@ func newServeCommand() *cobra.Command {
 	return command
 }
 
-func serveContext(ctx context.Context, dir string) error {
+func serveContext(ctx context.Context, dir string) (resultErr error) {
 	path := filepath.Join(dir, "config.yaml")
 	cfg, token, tlsConfig, err := prepareServe(path)
 	if err != nil {
 		return err
 	}
+	managedLogger, err := logging.New(dir, cfg.Log)
+	if err != nil {
+		return err
+	}
+	previousLogger := slog.Default()
+	slog.SetDefault(managedLogger.Logger())
+	defer func() {
+		slog.SetDefault(previousLogger)
+		resultErr = errors.Join(resultErr, managedLogger.Close())
+	}()
 	slog.Info("configuration loaded", "config_path", path, "listen", cfg.Server.Listen, "tls_mode", cfg.TLS.Mode)
 	application, err := app.Build(app.Options{Config: cfg, Token: token, Version: version, Commit: commit})
 	if err != nil {

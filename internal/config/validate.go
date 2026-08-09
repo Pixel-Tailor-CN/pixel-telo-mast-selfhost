@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const maxLogSizeMB = int64((1<<63)-1) / (1 << 20)
+
 func Validate(cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config is required")
@@ -47,6 +49,22 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.Baseline.Enabled && cfg.Baseline.CheckInterval.Std() <= 0 {
 		return fmt.Errorf("baseline check interval must be positive")
+	}
+	switch cfg.Log.Level {
+	case "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("unsupported log level %q", cfg.Log.Level)
+	}
+	switch cfg.Log.Format {
+	case "json", "text":
+	default:
+		return fmt.Errorf("unsupported log format %q", cfg.Log.Format)
+	}
+	if cfg.Log.Rotation.MaxSizeMB <= 0 || int64(cfg.Log.Rotation.MaxSizeMB) > maxLogSizeMB {
+		return fmt.Errorf("log rotation max size must be positive")
+	}
+	if cfg.Log.Retention.MaxAge.Std() <= 0 || cfg.Log.Retention.MaxBackups <= 0 || cfg.Log.Retention.MaxTotalSizeMB <= 0 || int64(cfg.Log.Retention.MaxTotalSizeMB) > maxLogSizeMB {
+		return fmt.Errorf("log retention limits must be positive")
 	}
 	for id, provider := range cfg.Providers {
 		if provider.MinInterval.Std() < 0 || provider.MaxConcurrent < 0 || provider.BreakerTimeout.Std() < 0 {

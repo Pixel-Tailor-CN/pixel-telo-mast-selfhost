@@ -207,6 +207,15 @@ providers:
 log:
   level: "info"
   format: "json"
+  rotation:
+    max_size_mb: 100
+    daily: true
+    local_time: true
+    compress: true
+  retention:
+    max_age: "720h"
+    max_backups: 30
+    max_total_size_mb: 1024
 ~~~
 
 ### 6.2 自动自签名证书
@@ -395,7 +404,7 @@ curl --fail --show-error \
 - 直接 TLS 模式只开放实际 HTTPS 监听端口。
 - 前置 TLS 模式只允许可信入口访问后端 HTTP 端口。
 - 限制数据目录权限，特别是 Token 和私钥。
-- 不启用通用访问日志记录完整 URL、Header 或请求体。
+- 内置访问日志只记录方法、路由模板、状态码、耗时和 Request ID，不记录完整 URL、Header 或请求体。
 - 不把 Token、私钥、数据库或证书提交到 Git。
 - 不提供反馈、管理、离线生成、清理或 /metrics 路由。
 - 不配置到官方 Mast 实时查询接口的失败回退。

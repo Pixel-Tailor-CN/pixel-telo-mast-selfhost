@@ -28,6 +28,44 @@ type ProviderConfig struct {
 	BreakerTimeout Duration `yaml:"breaker_timeout"`
 }
 
+type LogRotationConfig struct {
+	MaxSizeMB int  `yaml:"max_size_mb"`
+	Daily     bool `yaml:"daily"`
+	LocalTime bool `yaml:"local_time"`
+	Compress  bool `yaml:"compress"`
+}
+
+type LogRetentionConfig struct {
+	MaxAge         Duration `yaml:"max_age"`
+	MaxBackups     int      `yaml:"max_backups"`
+	MaxTotalSizeMB int      `yaml:"max_total_size_mb"`
+}
+
+type LogConfig struct {
+	Level     string             `yaml:"level"`
+	Format    string             `yaml:"format"`
+	Rotation  LogRotationConfig  `yaml:"rotation"`
+	Retention LogRetentionConfig `yaml:"retention"`
+}
+
+func defaultLogConfig() LogConfig {
+	return LogConfig{
+		Level:  "info",
+		Format: "json",
+		Rotation: LogRotationConfig{
+			MaxSizeMB: 100,
+			Daily:     true,
+			LocalTime: true,
+			Compress:  true,
+		},
+		Retention: LogRetentionConfig{
+			MaxAge:         Duration(30 * 24 * time.Hour),
+			MaxBackups:     30,
+			MaxTotalSizeMB: 1024,
+		},
+	}
+}
+
 func (c *Config) TLSFiles() (string, string) {
 	certFile, keyFile := c.TLS.CertFile, c.TLS.KeyFile
 	if certFile == "" {
@@ -73,10 +111,7 @@ type Config struct {
 		ProviderIDs []string `yaml:"provider_ids"`
 	} `yaml:"upstream"`
 	Providers map[string]ProviderConfig `yaml:"providers"`
-	Log       struct {
-		Level  string `yaml:"level"`
-		Format string `yaml:"format"`
-	} `yaml:"log"`
+	Log       LogConfig                 `yaml:"log"`
 }
 
 func Load(path string) (*Config, error) {
@@ -84,7 +119,7 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-	var cfg Config
+	cfg := Config{Log: defaultLogConfig()}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&cfg); err != nil {

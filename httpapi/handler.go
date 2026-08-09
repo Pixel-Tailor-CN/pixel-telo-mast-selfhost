@@ -65,7 +65,10 @@ func (h *Handler) writeServiceError(c *gin.Context, err error) {
 }
 
 func (h *Handler) writeError(c *gin.Context, status int, code string) {
-	requestID := uuid.NewString()
+	requestID := c.Writer.Header().Get("X-Request-ID")
+	if _, err := uuid.Parse(requestID); err != nil {
+		requestID = uuid.NewString()
+	}
 	c.Header("X-Request-ID", requestID)
 	c.JSON(status, gin.H{"error": code, "code": code, "request_id": requestID})
 }

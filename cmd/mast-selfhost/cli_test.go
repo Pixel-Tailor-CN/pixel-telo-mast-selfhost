@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -337,14 +335,13 @@ func TestRunServeContextLogsLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var logs bytes.Buffer
-	previousLogger := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	defer slog.SetDefault(previousLogger)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := runServeContext(ctx, []string{"--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	logs, err := os.ReadFile(filepath.Join(dir, "logs", "mast.log"))
+	if err != nil {
 		t.Fatal(err)
 	}
 	for _, message := range []string{
@@ -354,8 +351,8 @@ func TestRunServeContextLogsLifecycle(t *testing.T) {
 		"shutdown signal received",
 		"self-host server stopped",
 	} {
-		if !strings.Contains(logs.String(), "msg=\""+message+"\"") {
-			t.Fatalf("missing log %q in %s", message, logs.String())
+		if !strings.Contains(string(logs), `"msg":"`+message+`"`) {
+			t.Fatalf("missing log %q in %s", message, logs)
 		}
 	}
 }

@@ -3,6 +3,7 @@ module github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost
 go 1.26.5
 
 require (
+	github.com/Mystery00/rollwriter v0.1.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/go-sqlite v1.23.0
 	github.com/google/uuid v1.6.0

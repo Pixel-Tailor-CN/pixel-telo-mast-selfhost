@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-const defaultCheckURL = "https://mast.pixel-telo.com/api/v1/sync/check"
+const defaultCheckURL = "https://pixeltelo.api.mystery0.vip/api/v1/sync/check"
 
 // Manifest 描述官方 baseline 的可下载版本。
 type Manifest struct {

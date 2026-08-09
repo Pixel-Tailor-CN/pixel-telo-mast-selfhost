@@ -11,6 +11,7 @@ import (
 
 func validConfig() *Config {
 	var cfg Config
+	cfg.Log = defaultLogConfig()
 	cfg.Server.Listen = "127.0.0.1:8443"
 	cfg.Auth.TokenFile = "token"
 	cfg.Storage.RuntimePath = "runtime.db"
@@ -87,6 +88,45 @@ providers:
 	settings := cfg.Providers["sogou"]
 	if settings.MinInterval.Std() != time.Second || settings.MaxConcurrent != 2 || settings.BreakerTimeout.Std() != 45*time.Second {
 		t.Fatalf("provider settings = %+v", settings)
+	}
+	if cfg.Log.Level != "info" || cfg.Log.Format != "json" || cfg.Log.Rotation.MaxSizeMB != 100 || cfg.Log.Retention.MaxAge.Std() != 30*24*time.Hour {
+		t.Fatalf("default log config = %+v", cfg.Log)
+	}
+}
+
+func TestValidateRejectsInvalidLogConfiguration(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{name: "level", mutate: func(cfg *Config) { cfg.Log.Level = "trace" }},
+		{name: "format", mutate: func(cfg *Config) { cfg.Log.Format = "xml" }},
+		{name: "rotation size", mutate: func(cfg *Config) { cfg.Log.Rotation.MaxSizeMB = 0 }},
+		{name: "retention age", mutate: func(cfg *Config) { cfg.Log.Retention.MaxAge = 0 }},
+		{name: "retention backups", mutate: func(cfg *Config) { cfg.Log.Retention.MaxBackups = 0 }},
+		{name: "retention size", mutate: func(cfg *Config) { cfg.Log.Retention.MaxTotalSizeMB = 0 }},
+	}
+	overflow := uint64(maxLogSizeMB) + 1
+	if overflow <= uint64(^uint(0)>>1) {
+		tests = append(tests,
+			struct {
+				name   string
+				mutate func(*Config)
+			}{name: "rotation size overflow", mutate: func(cfg *Config) { cfg.Log.Rotation.MaxSizeMB = int(overflow) }},
+			struct {
+				name   string
+				mutate func(*Config)
+			}{name: "retention size overflow", mutate: func(cfg *Config) { cfg.Log.Retention.MaxTotalSizeMB = int(overflow) }},
+		)
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := validConfig()
+			test.mutate(cfg)
+			if err := Validate(cfg); err == nil {
+				t.Fatal("invalid log configuration should fail")
+			}
+		})
 	}
 }
 
