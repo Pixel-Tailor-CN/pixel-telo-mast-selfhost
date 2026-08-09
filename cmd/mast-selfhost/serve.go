@@ -75,6 +75,12 @@ func serveContext(ctx context.Context, dir string) (resultErr error) {
 		return err
 	}
 	slog.Info("self-host server started", "listen", cfg.Server.Listen, "tls_mode", cfg.TLS.Mode)
+	managedLogger.ConsoleInfo("self-host server started",
+		"listen", cfg.Server.Listen,
+		"tls_mode", cfg.TLS.Mode,
+		"log_file", managedLogger.LogPath(),
+		"log_hint", "view this file for detailed logs",
+	)
 	<-ctx.Done()
 	slog.Info("shutdown signal received")
 	if err := application.Close(context.Background()); err != nil {

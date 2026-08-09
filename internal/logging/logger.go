@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/Mystery00/rollwriter"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/config"
@@ -20,8 +21,10 @@ const (
 
 // ManagedLogger 管理统一 Logger 及其滚动文件 Writer 的生命周期。
 type ManagedLogger struct {
-	logger *slog.Logger
-	writer *rolling.Writer
+	logger        *slog.Logger
+	consoleStatus *slog.Logger
+	writer        *rolling.Writer
+	logPath       string
 }
 
 // New 创建同时写入文件和控制台的 slog Logger。
@@ -34,7 +37,10 @@ func newManagedLogger(dir string, cfg config.LogConfig, consoleWriter io.Writer)
 	if err != nil {
 		return nil, err
 	}
-	logsDir := filepath.Join(dir, logDirectory)
+	logsDir, err := filepath.Abs(filepath.Join(dir, logDirectory))
+	if err != nil {
+		return nil, fmt.Errorf("resolve log directory: %w", err)
+	}
 	if err := os.MkdirAll(logsDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create log directory: %w", err)
 	}
@@ -50,8 +56,10 @@ func newManagedLogger(dir string, cfg config.LogConfig, consoleWriter io.Writer)
 	if err != nil {
 		return nil, fmt.Errorf("validate log retention size: %w", err)
 	}
-	consoleHandler := slog.NewTextHandler(consoleWriter, &slog.HandlerOptions{Level: slog.LevelWarn})
+	sharedConsoleWriter := &synchronizedWriter{writer: consoleWriter}
+	consoleHandler := slog.NewTextHandler(sharedConsoleWriter, &slog.HandlerOptions{Level: slog.LevelWarn})
 	console := slog.New(consoleHandler)
+	consoleStatus := slog.New(slog.NewTextHandler(sharedConsoleWriter, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	writer, err := rolling.New(rolling.Config{
 		Filename: logPath,
 		Rotation: rolling.RotationConfig{
@@ -86,7 +94,7 @@ func newManagedLogger(dir string, cfg config.LogConfig, consoleWriter io.Writer)
 		fileHandler,
 		consoleHandler,
 	}}
-	return &ManagedLogger{logger: slog.New(handler), writer: writer}, nil
+	return &ManagedLogger{logger: slog.New(handler), consoleStatus: consoleStatus, writer: writer, logPath: logPath}, nil
 }
 
 func megabytesToBytes(value int) (int64, error) {
@@ -125,6 +133,16 @@ func parseLevel(value string) (slog.Level, error) {
 // Logger 返回受管的统一 Logger。
 func (l *ManagedLogger) Logger() *slog.Logger { return l.logger }
 
+// LogPath 返回活动日志文件的绝对路径。
+func (l *ManagedLogger) LogPath() string { return l.logPath }
+
+// ConsoleInfo 将少量启动状态直接写入控制台，不改变常规控制台日志等级。
+func (l *ManagedLogger) ConsoleInfo(message string, args ...any) {
+	if l != nil && l.consoleStatus != nil {
+		l.consoleStatus.Info(message, args...)
+	}
+}
+
 // Close 关闭文件 Writer 并等待后台压缩和清理完成。
 func (l *ManagedLogger) Close() error {
 	if l == nil || l.writer == nil {
@@ -137,6 +155,17 @@ func (l *ManagedLogger) Close() error {
 }
 
 type multiHandler struct{ handlers []slog.Handler }
+
+type synchronizedWriter struct {
+	mu     sync.Mutex
+	writer io.Writer
+}
+
+func (w *synchronizedWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.writer.Write(data)
+}
 
 type reportingWriter struct {
 	writer io.Writer

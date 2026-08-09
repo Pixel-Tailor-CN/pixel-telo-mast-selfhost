@@ -38,6 +38,7 @@ func TestManagedLoggerSplitsLevelsAndUsesFixedPath(t *testing.T) {
 	}
 	logger := managed.Logger()
 	logger.Info("file only message")
+	managed.ConsoleInfo("startup status", "log_file", managed.LogPath())
 	logger.Warn("shared warning")
 	if err := managed.Close(); err != nil {
 		t.Fatal(err)
@@ -51,8 +52,14 @@ func TestManagedLoggerSplitsLevelsAndUsesFixedPath(t *testing.T) {
 	if !strings.Contains(fileLogs, `"msg":"file only message"`) || !strings.Contains(fileLogs, `"msg":"shared warning"`) {
 		t.Fatalf("unexpected file logs: %s", fileLogs)
 	}
-	if strings.Contains(console.String(), "file only message") || !strings.Contains(console.String(), "shared warning") {
+	if strings.Contains(fileLogs, "startup status") {
+		t.Fatalf("console-only startup status leaked into file logs: %s", fileLogs)
+	}
+	if strings.Contains(console.String(), "file only message") || !strings.Contains(console.String(), "startup status") || !strings.Contains(console.String(), "shared warning") {
 		t.Fatalf("unexpected console logs: %s", console.String())
+	}
+	if !filepath.IsAbs(managed.LogPath()) || managed.LogPath() != filepath.Join(dir, "logs", "mast.log") {
+		t.Fatalf("log path = %q", managed.LogPath())
 	}
 }
 
