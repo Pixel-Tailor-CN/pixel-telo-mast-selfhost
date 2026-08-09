@@ -143,6 +143,9 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
           outputs: type=image,"name=${{ env.GHCR_IMAGE }},${{ env.DOCKERHUB_IMAGE }}",push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
@@ -231,6 +234,9 @@ jobs:
           IMAGE: ${{ env.GHCR_IMAGE }}:${{ github.ref_name }}
         run: |
           test "${IMAGE##*:}" = "${GITHUB_REF_NAME}"
+          version_output=$(docker run --rm "$IMAGE" version)
+          expected_version="${GITHUB_REF_NAME#v} commit=${GITHUB_SHA} api=2"
+          test "${version_output}" = "${expected_version}"
           docker volume create mast-selfhost-smoke-data
           docker run --rm -v mast-selfhost-smoke-data:/app/data "$IMAGE" init --dir /app/data --listen 0.0.0.0:8443 --allow-insecure-private-network --provider-id sogou --sync-on-start=false
           docker run -d --name mast-selfhost-smoke -v mast-selfhost-smoke-data:/app/data -p 18443:8443 "$IMAGE" serve --dir /app/data
