@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"sync"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/security"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/phone"
@@ -19,6 +20,8 @@ type Handler struct {
 	Limiter      *security.QueryLimiter
 	BuildCommit  string
 	Capabilities []string
+	pairingMu    sync.Mutex
+	pairing      *pairingSession
 }
 
 func (h *Handler) Register(router *gin.Engine) {
@@ -27,6 +30,7 @@ func (h *Handler) Register(router *gin.Engine) {
 	}
 	router.GET("/", h.home)
 	router.GET("/api/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
+	router.GET("/p/:code", h.pairingPage)
 	authenticated := router.Group("/api", h.Headers.Middleware(), security.Bearer(h.Token))
 	authenticated.GET("/selfhost/v1/info", h.info)
 	authenticated.GET("/v2/sources", h.sources)

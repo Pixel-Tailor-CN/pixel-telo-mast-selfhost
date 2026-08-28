@@ -361,6 +361,8 @@ tls:
 
 ## 10. 首次启动与配对
 
+`serve` 启动成功后，若 `tls.public_url` 是可访问的 HTTPS 根 URL，会在控制台打印限时 5 分钟的配对页 `public_url/p/<随机串>`。票据只保存在进程内存，不写数据库。过期后使用 `pairing`/`pair` 查看明文，或重启服务生成新链接。配对页不需要 Bearer Token，也不应反向代理到公网长期暴露。
+
 启动后检查公开首页和健康检查：
 
 ```bash
@@ -371,7 +373,7 @@ curl -k --fail --show-error https://mast.example.com:8443/api/health
 
 首页是静态状态页，不展示 Token、Instance ID 或 Commit。健康检查返回 `{"status":"ok"}`。这两条路由不需要 Bearer Token。
 
-首次成功启动后输出配对信息：
+启动日志会打印 `public_url/p/<随机串>` 配对页，5 分钟有效，票据只在内存。过期后可用 `pairing`（别名 `pair`）查看明文：
 
 ```bash
 docker run --rm \
@@ -386,10 +388,10 @@ docker run --rm \
 mast-selfhost pairing --dir /var/lib/mast-selfhost
 ```
 
-配对输出格式：
+配对页二维码与可粘贴文本为：
 
-```text
-url=<public-url> token=<token> instance_id=<uuid> spki_pin=sha256/<base64>
+```json
+{"url":"<public-url>","token":"<token>","spki_pin":"sha256/<base64>"}
 ```
 
 该输出必须按密码处理，不得进入日志、工单或公开剪贴板历史。`tls.mode=off` 时 `spki_pin` 为空。

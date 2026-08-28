@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/httpapi"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/baselinesync"
@@ -31,6 +32,7 @@ type App struct {
 	baseline  *baseline.Store
 	query     *service.Service
 	sync      *baselinesync.Manager
+	handler   *httpapi.Handler
 	closeOnce sync.Once
 }
 
@@ -126,7 +128,24 @@ func Build(options Options) (*App, error) {
 	}
 	headers := security.ServerHeaders{Version: options.Version, APIVersion: "2", InstanceID: options.InstanceID}
 	handler := &httpapi.Handler{Service: query, Headers: headers, Token: options.Token, Limiter: security.NewQueryLimiter(options.Config.RateLimit.RequestsPerSecond, options.Config.RateLimit.Burst, options.Config.Query.MaxConcurrent), BuildCommit: options.Commit, Capabilities: []string{"query_v2", "spki_pairing"}}
-	return &App{config: options.Config, server: &http.Server{Addr: options.Config.Server.Listen, Handler: NewRouter(handler)}, runtime: runtimeRepo, baseline: baseStore, query: query, sync: syncManager}, nil
+	spki := ""
+	if options.Config.TLS.Mode != "off" {
+		certFile, _ := options.Config.TLSFiles()
+		if pin, pinErr := security.CertificateSPKI(certFile); pinErr == nil {
+			spki = pin
+		}
+	}
+	if _, err := handler.StartPairingSession(options.Config.TLS.PublicURL, spki, time.Now()); err != nil {
+		slog.Info("pairing page not published", "error_type", fmt.Sprintf("%T", err))
+	}
+	return &App{config: options.Config, server: &http.Server{Addr: options.Config.Server.Listen, Handler: NewRouter(handler)}, runtime: runtimeRepo, baseline: baseStore, query: query, sync: syncManager, handler: handler}, nil
+}
+
+func (a *App) PairingPageURL() string {
+	if a == nil || a.handler == nil {
+		return ""
+	}
+	return a.handler.PairingPageURL()
 }
 
 func providerSources(cfg *config.Config) []provider.SourceConfig {

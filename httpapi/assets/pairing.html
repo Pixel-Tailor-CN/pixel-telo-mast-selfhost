@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>配对 Pixel Telo</title>
+  <style>
+    :root { color-scheme: dark; font-family: "Noto Sans SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { min-width: 320px; margin: 0; color: #f1f5f9; background: #061222; }
+    main { width: min(720px, calc(100% - 40px)); margin: 0 auto; padding: 40px 0 56px; }
+    h1 { margin: 0 0 12px; font-size: 28px; }
+    .lead { margin: 0 0 28px; color: #aeb8c8; line-height: 1.7; }
+    .warn { margin: 0 0 24px; padding: 12px 14px; border: 1px solid #8a5a1e; border-radius: 10px; color: #f3d9a4; background: rgba(80, 48, 8, .35); }
+    .card { margin-bottom: 16px; padding: 16px; border: 1px solid #293a50; border-radius: 14px; background: rgba(7, 18, 31, .7); }
+    .label { color: #aab4c4; font-size: 14px; }
+    .value { margin-top: 8px; word-break: break-all; font-family: ui-monospace, Consolas, monospace; font-size: 15px; }
+    .row { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; }
+    button { flex: 0 0 auto; height: 36px; padding: 0 14px; border: 1px solid #23d69a; border-radius: 8px; color: #fff; background: #128a64; cursor: pointer; }
+    button:hover { border-color: #55ebbb; }
+    .qr { display: block; width: min(280px, 100%); margin: 12px auto 0; border-radius: 8px; background: #fff; }
+    .paste { margin-top: 8px; width: 100%; min-height: 72px; padding: 10px; border: 1px solid #293a50; border-radius: 8px; color: #f1f5f9; background: #030a13; font-family: ui-monospace, Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>把下面信息填进 Pixel Telo</h1>
+    <p class="lead">这是配对密钥，请只在自己的手机上使用，不要发到群里或截图外传。此页面约 5 分钟后失效。</p>
+    <p class="warn">用手机摄像头或微信扫描二维码，再把识别出的文字粘贴到 App。也可以点复制后发到自己的手机。</p>
+    <section class="card">
+      <div class="row">
+        <div>
+          <div class="label">地址</div>
+          <div class="value" id="url">{{.URL}}</div>
+        </div>
+        <button type="button" data-copy="url">复制</button>
+      </div>
+    </section>
+    <section class="card">
+      <div class="row">
+        <div>
+          <div class="label">令牌</div>
+          <div class="value" id="token">{{.Token}}</div>
+        </div>
+        <button type="button" data-copy="token">复制</button>
+      </div>
+    </section>
+    <section class="card">
+      <div class="row">
+        <div>
+          <div class="label">证书指纹</div>
+          <div class="value" id="spki">{{.SPKIPin}}</div>
+        </div>
+        <button type="button" data-copy="spki">复制</button>
+      </div>
+    </section>
+    <section class="card">
+      <div class="label">扫码获取配对 JSON</div>
+      <img class="qr" alt="配对二维码" src="{{.QRDataURI}}">
+      <div class="label" style="margin-top:16px">整段 JSON</div>
+      <textarea class="paste" id="line" readonly>{{.Line}}</textarea>
+      <button type="button" data-copy="line" style="margin-top:10px">复制整行</button>
+    </section>
+  </main>
+  <script>
+    document.querySelectorAll("[data-copy]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var node = document.getElementById(button.getAttribute("data-copy"));
+        var text = node.value || node.textContent || "";
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text);
+          return;
+        }
+        if (node.select) { node.select(); document.execCommand("copy"); }
+      });
+    });
+  </script>
+</body>
+</html>

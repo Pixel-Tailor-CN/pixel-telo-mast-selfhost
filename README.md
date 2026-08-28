@@ -48,8 +48,9 @@ docker compose up -d
 
 ```bash
 docker compose logs --tail 50
-docker compose exec mast-selfhost /mast-selfhost pairing --dir /app/data
 ```
+
+日志里会有 5 分钟有效的配对页面地址，用浏览器打开即可复制或扫码。
 
 ## 快速开始：Docker 命令
 
@@ -96,7 +97,9 @@ curl -k --fail --show-error https://192.168.1.8:8443/api/health
 
 应返回 `{"status":"ok"}`。
 
-拿到给手机用的配对信息（**包含密码，不要发到群里或截图发给别人**）：
+服务启动成功后，终端会打印一个**限时 5 分钟**的配对页面地址（用配置里的 `public_url`）。用电脑或手机浏览器打开，页面上有复制按钮和二维码，把内容填进 Pixel Telo。不要把页面或密钥发到群里。
+
+超过 5 分钟后页面失效，可再执行 `pairing` 查看文字（不会刷新网页链接，需在有效期内打开启动时打印的地址，或重启 `serve`）：
 
 ```bash
 docker run --rm \
@@ -104,14 +107,6 @@ docker run --rm \
   "${MAST_IMAGE}" \
   pairing --dir /app/data
 ```
-
-会打出一行类似：
-
-```text
-url=https://192.168.1.8:8443 token=... instance_id=... spki_pin=sha256/...
-```
-
-把它填进 Pixel Telo 的自建服务 / 配对页面。`url` 必须是手机也能访问的地址，不能填 `127.0.0.1`。
 
 Windows Docker Desktop 把上面的 `"$HOME/mast-selfhost"` 换成例如 `D:\mast-selfhost` 即可。
 
@@ -132,14 +127,14 @@ mast-selfhost-windows-amd64.exe init --dir data --listen 0.0.0.0:8443 --provider
 mast-selfhost-windows-amd64.exe serve --dir data
 ```
 
-6. 保持这个窗口开着。启动时会打印可尝试的访问地址。浏览器打开配对里的 `url`，确认「运行正常」。
-7. **另开一个终端**再取配对信息：
+6. 保持这个窗口开着。启动成功后会打印配对页面地址，用浏览器打开即可复制或扫码，不必再开窗口。
+7. 若 5 分钟内没打开，可另开终端执行 `pairing` 查看文字，或重启 `serve` 拿到新的页面链接：
 
 ```bat
 mast-selfhost-windows-amd64.exe pairing --dir data
 ```
 
-Windows 防火墙如果询问，允许专用网络访问。手机必须连同一 Wi-Fi，不能填 `127.0.0.1`。
+Windows 防火墙如果询问，允许专用网络访问。手机必须能访问配对页上的地址，不要用 `127.0.0.1`。
 
 ## 走不通时先看这里
 

@@ -49,7 +49,7 @@ func TestSelfHostRouteSetExcludesFeedbackAndMetrics(t *testing.T) {
 	for _, route := range router.Routes() {
 		seen[route.Method+" "+route.Path] = true
 	}
-	want := []string{"GET /", "GET /api/health", "GET /api/selfhost/v1/info", "GET /api/v2/sources", "POST /api/v2/query"}
+	want := []string{"GET /", "GET /api/health", "GET /p/:code", "GET /api/selfhost/v1/info", "GET /api/v2/sources", "POST /api/v2/query"}
 	if len(seen) != len(want) {
 		t.Fatalf("routes = %#v", seen)
 	}

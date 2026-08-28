@@ -82,6 +82,10 @@ func serveContext(ctx context.Context, dir string) (resultErr error) {
 		"log_file", managedLogger.LogPath(),
 		"log_hint", "view this file for detailed logs",
 	)
+	if pairingURL := application.PairingPageURL(); pairingURL != "" {
+		fmt.Fprintf(os.Stderr, "请在 5 分钟内用浏览器打开配对页面（含二维码和复制按钮）：\n%s\n", pairingURL)
+		managedLogger.ConsoleInfo("pairing setup page ready", "expires", "5m")
+	}
 	for index, accessURL := range candidateAccessURLs(cfg.Server.Listen, cfg.TLS.PublicURL) {
 		source := "detected"
 		if index == 0 && strings.TrimRight(cfg.TLS.PublicURL, "/") == accessURL {
