@@ -3,8 +3,8 @@ server:
 auth:
   token_file: {{.TokenPath}}
 tls:
-  mode: "off"
-  public_url: ""
+  mode: {{.TLSMode}}
+  public_url: {{.PublicURL}}
   cert_file: ""
   key_file: ""
   allow_insecure_private_network: {{.AllowInsecurePrivateNetwork}}

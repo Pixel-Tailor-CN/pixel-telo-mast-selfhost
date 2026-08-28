@@ -4,6 +4,8 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -20,9 +22,22 @@ type exampleConfigData struct {
 	TokenPath                   string
 	RuntimePath                 string
 	Listen                      string
+	TLSMode                     string
+	PublicURL                   string
 	AllowInsecurePrivateNetwork bool
 	ProviderIDs                 string
 	SyncOnStart                 bool
+}
+
+type initOptions struct {
+	dir           string
+	listen        string
+	tlsMode       string
+	publicURL     string
+	allowInsecure bool
+	ifMissing     bool
+	providerIDs   []string
+	syncOnStart   bool
 }
 
 func runInit(args []string) error {
@@ -32,53 +47,42 @@ func runInit(args []string) error {
 }
 
 func newInitCommand() *cobra.Command {
-	var dir string
-	var listen string
-	var allowInsecure bool
-	var ifMissing bool
-	var providerIDs []string
-	syncOnStart := true
+	options := initOptions{syncOnStart: true}
 	command := &cobra.Command{
 		Use:   "init",
 		Short: "生成初始配置文件",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if ifMissing {
-				if _, err := os.Stat(filepath.Join(dir, "config.yaml")); err == nil {
+			if options.ifMissing {
+				if _, err := os.Stat(filepath.Join(options.dir, "config.yaml")); err == nil {
 					return nil
 				} else if !os.IsNotExist(err) {
 					return err
 				}
 			}
-			return initDataDirectoryWithProviders(dir, listen, allowInsecure, providerIDs, syncOnStart)
+			return initDataDirectory(options)
 		},
 	}
-	command.Flags().StringVar(&dir, "dir", ".", "数据目录")
-	command.Flags().StringVar(&listen, "listen", "127.0.0.1:8443", "监听地址")
-	command.Flags().BoolVar(&allowInsecure, "allow-insecure-private-network", false, "允许私有网络使用裸 HTTP")
-	command.Flags().BoolVar(&ifMissing, "if-missing", false, "配置已存在时直接成功")
-	command.Flags().StringSliceVar(&providerIDs, "provider-id", nil, "显式启用的 Provider，可重复传入")
-	command.Flags().BoolVar(&syncOnStart, "sync-on-start", true, "启动时是否同步 baseline")
+	command.Flags().StringVar(&options.dir, "dir", ".", "数据目录")
+	command.Flags().StringVar(&options.listen, "listen", "127.0.0.1:8443", "监听地址")
+	command.Flags().StringVar(&options.tlsMode, "tls-mode", "auto", "TLS 模式：auto、files 或 off")
+	command.Flags().StringVar(&options.publicURL, "public-url", "", "客户端访问的 HTTPS 根 URL，auto 模式写入证书 SAN")
+	command.Flags().BoolVar(&options.allowInsecure, "allow-insecure-private-network", false, "允许私有网络使用裸 HTTP")
+	command.Flags().BoolVar(&options.ifMissing, "if-missing", false, "配置已存在时直接成功")
+	command.Flags().StringSliceVar(&options.providerIDs, "provider-id", nil, "显式启用的 Provider，可重复传入")
+	command.Flags().BoolVar(&options.syncOnStart, "sync-on-start", true, "启动时是否同步 baseline")
 	return command
 }
 
-func initDataDirectory(dir string) error {
-	return initDataDirectoryWithOptions(dir, "127.0.0.1:8443", false)
-}
-
-func initDataDirectoryWithOptions(dir, listen string, allowInsecure bool) error {
-	return initDataDirectoryWithProviders(dir, listen, allowInsecure, nil, true)
-}
-
-func initDataDirectoryWithProviders(dir, listen string, allowInsecure bool, providerIDs []string, syncOnStart bool) error {
-	data, err := renderExampleConfigWithProviders(dir, listen, allowInsecure, providerIDs, syncOnStart)
+func initDataDirectory(options initOptions) error {
+	data, err := renderExampleConfig(options)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(options.dir, 0o700); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
 	}
-	configPath := filepath.Join(dir, "config.yaml")
+	configPath := filepath.Join(options.dir, "config.yaml")
 	file, err := os.OpenFile(configPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create config: %w", err)
@@ -101,18 +105,14 @@ func initDataDirectoryWithProviders(dir, listen string, allowInsecure bool, prov
 	return nil
 }
 
-func renderExampleConfig(dir string) ([]byte, error) {
-	return renderExampleConfigWithOptions(dir, "127.0.0.1:8443", false)
-}
-
-func renderExampleConfigWithOptions(dir, listen string, allowInsecure bool) ([]byte, error) {
-	return renderExampleConfigWithProviders(dir, listen, allowInsecure, nil, true)
-}
-
-func renderExampleConfigWithProviders(dir, listen string, allowInsecure bool, providerIDs []string, syncOnStart bool) ([]byte, error) {
-	absDir, err := filepath.Abs(dir)
+func renderExampleConfig(options initOptions) ([]byte, error) {
+	absDir, err := filepath.Abs(options.dir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve data directory: %w", err)
+	}
+	tlsMode, publicURL, err := resolveInitTLS(options.listen, options.tlsMode, options.publicURL)
+	if err != nil {
+		return nil, err
 	}
 	tmpl, err := template.New("config.example.yaml").Parse(exampleConfigTemplate)
 	if err != nil {
@@ -121,16 +121,64 @@ func renderExampleConfigWithProviders(dir, listen string, allowInsecure bool, pr
 	values := exampleConfigData{
 		TokenPath:                   strconv.Quote(filepath.Join(absDir, "token")),
 		RuntimePath:                 strconv.Quote(filepath.Join(absDir, "runtime.db")),
-		Listen:                      strconv.Quote(listen),
-		AllowInsecurePrivateNetwork: allowInsecure,
-		ProviderIDs:                 providerIDsYAML(providerIDs),
-		SyncOnStart:                 syncOnStart,
+		Listen:                      strconv.Quote(options.listen),
+		TLSMode:                     strconv.Quote(tlsMode),
+		PublicURL:                   strconv.Quote(publicURL),
+		AllowInsecurePrivateNetwork: options.allowInsecure,
+		ProviderIDs:                 providerIDsYAML(options.providerIDs),
+		SyncOnStart:                 options.syncOnStart,
 	}
 	var output bytes.Buffer
 	if err := tmpl.Execute(&output, values); err != nil {
 		return nil, fmt.Errorf("render embedded config template: %w", err)
 	}
 	return output.Bytes(), nil
+}
+
+func resolveInitTLS(listen, tlsMode, publicURL string) (string, string, error) {
+	tlsMode = strings.TrimSpace(tlsMode)
+	if tlsMode == "" {
+		tlsMode = "auto"
+	}
+	switch tlsMode {
+	case "auto", "files", "off":
+	default:
+		return "", "", fmt.Errorf("unsupported tls mode %q", tlsMode)
+	}
+	publicURL = strings.TrimSpace(publicURL)
+	if publicURL == "" && tlsMode == "auto" {
+		inferred, ok := inferredPublicURL(listen)
+		if !ok {
+			return "", "", fmt.Errorf("tls public URL is required when listen is not a concrete host")
+		}
+		publicURL = inferred
+	}
+	if publicURL != "" {
+		if err := validateInitPublicURL(publicURL); err != nil {
+			return "", "", err
+		}
+	}
+	return tlsMode, publicURL, nil
+}
+
+func inferredPublicURL(listen string) (string, bool) {
+	host, port, err := net.SplitHostPort(strings.TrimSpace(listen))
+	if err != nil {
+		return "", false
+	}
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		return "", false
+	}
+	return "https://" + net.JoinHostPort(host, port), true
+}
+
+func validateInitPublicURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil {
+		return fmt.Errorf("tls.public_url must be an HTTPS root URL")
+	}
+	return nil
 }
 
 func providerIDsYAML(providerIDs []string) string {

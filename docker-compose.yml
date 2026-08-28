@@ -1,12 +1,32 @@
+# 家庭局域网：先设置手机能访问的地址，再启动。
+# Windows PowerShell 示例：
+#   $env:MAST_PUBLIC_URL="https://192.168.1.8:8443"
+#   docker compose up -d
+# Linux / macOS 示例：
+#   MAST_PUBLIC_URL=https://192.168.1.8:8443 docker compose up -d
+#
+# 镜像使用 latest，方便跟随发布；生产环境如需钉死版本，请改成 vX.Y.Z。
+# 前置反代请改用 --tls-mode off，不要把 8443 直接暴露到公网。
 services:
   mast-selfhost-init:
-    image: ghcr.io/pixel-tailor-cn/mast-selfhost:0.1.0
+    image: mystery0/pixel-telo-mast-selfhost:latest
     restart: "no"
     volumes:
       - mast-data:/app/data
-    command: ["init", "--dir", "/app/data", "--if-missing", "--listen", "0.0.0.0:8443", "--allow-insecure-private-network", "--provider-id", "sogou", "--sync-on-start=false"]
+    command:
+      - init
+      - --dir
+      - /app/data
+      - --if-missing
+      - --listen
+      - 0.0.0.0:8443
+      - --public-url
+      - "${MAST_PUBLIC_URL:-https://127.0.0.1:8443}"
+      - --provider-id
+      - sogou
+      - --sync-on-start=false
   mast-selfhost:
-    image: ghcr.io/pixel-tailor-cn/mast-selfhost:0.1.0
+    image: mystery0/pixel-telo-mast-selfhost:latest
     restart: unless-stopped
     ports:
       - "8443:8443"

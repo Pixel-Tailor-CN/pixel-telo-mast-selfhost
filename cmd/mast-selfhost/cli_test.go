@@ -20,15 +20,6 @@ func TestPrepareServeAndPairingPersistIdentityAndTLS(t *testing.T) {
 	makeTestConfigRunnable(t, filepath.Join(dir, "config.yaml"))
 
 	configPath := filepath.Join(dir, "config.yaml")
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	configured := strings.Replace(string(data), "mode: \"off\"", "mode: \"auto\"", 1)
-	configured = strings.Replace(configured, "public_url: \"\"", "public_url: \"https://127.0.0.1:9443\"", 1)
-	if err := os.WriteFile(configPath, []byte(configured), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	cfg, token, tlsConfig, err := prepareServe(configPath)
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +41,7 @@ func TestPrepareServeAndPairingPersistIdentityAndTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.URL != "https://127.0.0.1:9443" || first.Token == "" || first.InstanceID == "" || first.SPKIPin == "" {
+	if first.URL != "https://127.0.0.1:8443" || first.Token == "" || first.InstanceID == "" || first.SPKIPin == "" {
 		t.Fatalf("pairing info = %#v", first)
 	}
 
@@ -121,6 +112,9 @@ func TestInitOnlyCreatesConfig(t *testing.T) {
 	if !strings.Contains(string(data), "provider_ids: []") {
 		t.Fatalf("init should require explicit providers: %s", data)
 	}
+	if !strings.Contains(string(data), "mode: \"auto\"") || !strings.Contains(string(data), "public_url: \"https://127.0.0.1:8443\"") {
+		t.Fatalf("init should default to auto TLS: %s", data)
+	}
 	for name, path := range map[string]string{
 		"token":   filepath.Join(dir, "token"),
 		"runtime": filepath.Join(dir, "runtime.db"),
@@ -160,9 +154,24 @@ func TestInitRejectsExistingConfig(t *testing.T) {
 	}
 }
 
-func TestInitRejectsPublicURLFlag(t *testing.T) {
-	if err := runInit([]string{"--dir", t.TempDir(), "--public-url", "https://127.0.0.1:9443"}); err == nil {
-		t.Fatal("removed --public-url flag should be rejected")
+func TestInitWritesPublicURL(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInit([]string{"--dir", dir, "--listen", "0.0.0.0:8443", "--public-url", "https://192.168.1.8:8443"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if !strings.Contains(got, "mode: \"auto\"") || !strings.Contains(got, "public_url: \"https://192.168.1.8:8443\"") {
+		t.Fatalf("public url not written: %s", got)
+	}
+}
+
+func TestInitRequiresPublicURLForWildcardListen(t *testing.T) {
+	if err := runInit([]string{"--dir", t.TempDir(), "--listen", "0.0.0.0:8443"}); err == nil {
+		t.Fatal("wildcard listen without public URL should be rejected")
 	}
 }
 
@@ -225,8 +234,8 @@ func TestPrepareServeCreatesAndReusesToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tlsConfig != nil {
-		t.Fatalf("TLS config = %#v", tlsConfig)
+	if tlsConfig == nil {
+		t.Fatal("auto TLS config is nil")
 	}
 	if len(first) != 64 {
 		t.Fatalf("token length = %d", len(first))
