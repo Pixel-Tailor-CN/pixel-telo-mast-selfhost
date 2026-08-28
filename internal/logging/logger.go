@@ -57,9 +57,9 @@ func newManagedLogger(dir string, cfg config.LogConfig, consoleWriter io.Writer)
 		return nil, fmt.Errorf("validate log retention size: %w", err)
 	}
 	sharedConsoleWriter := &synchronizedWriter{writer: consoleWriter}
-	consoleHandler := slog.NewTextHandler(sharedConsoleWriter, &slog.HandlerOptions{Level: slog.LevelWarn})
+	consoleHandler := newLineHandler(sharedConsoleWriter, &slog.HandlerOptions{Level: slog.LevelWarn})
 	console := slog.New(consoleHandler)
-	consoleStatus := slog.New(slog.NewTextHandler(sharedConsoleWriter, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	consoleStatus := slog.New(newLineHandler(sharedConsoleWriter, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	writer, err := rolling.New(rolling.Config{
 		Filename: logPath,
 		Rotation: rolling.RotationConfig{
@@ -86,7 +86,7 @@ func newManagedLogger(dir string, cfg config.LogConfig, consoleWriter io.Writer)
 	fileOptions := &slog.HandlerOptions{Level: level}
 	var fileHandler slog.Handler
 	if cfg.Format == "text" {
-		fileHandler = slog.NewTextHandler(reportedWriter, fileOptions)
+		fileHandler = newLineHandler(reportedWriter, fileOptions)
 	} else {
 		fileHandler = slog.NewJSONHandler(reportedWriter, fileOptions)
 	}

@@ -82,8 +82,25 @@ func TestManagedLoggerHonorsFileLevelAndTextFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	logs := string(data)
-	if strings.Contains(logs, "excluded warning") || !strings.Contains(logs, `msg="included error"`) || !strings.Contains(logs, "kind=test") {
+	if strings.Contains(logs, "excluded warning") || !strings.Contains(logs, "[ERROR] - included error kind=test") {
 		t.Fatalf("unexpected text logs: %s", logs)
+	}
+}
+
+func TestLineHandlerFormat(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(newLineHandler(&output, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger.Info("some message", "tag1", 1, "tag2", 2)
+	line := output.String()
+	if !strings.Contains(line, " [INFO] - some message tag1=1 tag2=2\n") {
+		t.Fatalf("line = %q", line)
+	}
+	if len(line) < len("2006-01-02 15:04:05.000 [INFO] - some message tag1=1 tag2=2\n") {
+		t.Fatalf("line too short: %q", line)
+	}
+	stamp := line[:len("2006-01-02 15:04:05.000")]
+	if _, err := time.ParseInLocation("2006-01-02 15:04:05.000", stamp, time.Local); err != nil {
+		t.Fatalf("timestamp %q: %v", stamp, err)
 	}
 }
 

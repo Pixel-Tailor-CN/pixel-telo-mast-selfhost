@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/app"
@@ -86,13 +85,10 @@ func serveContext(ctx context.Context, dir string) (resultErr error) {
 		fmt.Fprintf(os.Stderr, "请在 5 分钟内用浏览器打开配对页面（含二维码和复制按钮）：\n%s\n", pairingURL)
 		managedLogger.ConsoleInfo("pairing setup page ready", "expires", "5m")
 	}
-	for index, accessURL := range candidateAccessURLs(cfg.Server.Listen, cfg.TLS.PublicURL) {
-		source := "detected"
-		if index == 0 && strings.TrimRight(cfg.TLS.PublicURL, "/") == accessURL {
-			source = "configured"
-		}
-		slog.Info("candidate access url", "url", accessURL, "source", source)
-		managedLogger.ConsoleInfo("candidate access url", "url", accessURL, "source", source)
+	for _, accessURL := range candidateAccessURLs(cfg.Server.Listen, cfg.TLS.PublicURL) {
+		message := "candidate access url: " + accessURL
+		slog.Info(message)
+		managedLogger.ConsoleInfo(message)
 	}
 	<-ctx.Done()
 	slog.Info("shutdown signal received")
