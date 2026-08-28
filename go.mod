@@ -1,6 +1,6 @@
 module github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost
 
-go 1.26.5
+go 1.26.7
 
 require (
 	github.com/Mystery00/rollwriter v0.1.0

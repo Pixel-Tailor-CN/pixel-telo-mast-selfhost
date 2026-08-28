@@ -1,4 +1,4 @@
-FROM golang:1.26 AS build
+FROM golang:1.26.7 AS build
 ARG VERSION=0.1.0
 ARG COMMIT=unknown
 WORKDIR /src

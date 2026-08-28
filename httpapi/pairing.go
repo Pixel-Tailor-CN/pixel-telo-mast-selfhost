@@ -37,11 +37,11 @@ type pairingSession struct {
 }
 
 type pairingPageData struct {
-	URL        string
-	Token      string
-	SPKIPin    string
-	Line       template.HTML
-	QRDataURI  template.URL
+	URL       string
+	Token     string
+	SPKIPin   string
+	Line      template.HTML
+	QRDataURI template.URL
 }
 
 func (h *Handler) StartPairingSession(publicURL, spki string, now time.Time) (string, error) {
@@ -106,11 +106,11 @@ func (h *Handler) pairingPage(c *gin.Context) {
 	}
 	var page bytes.Buffer
 	if err := pairingTemplate.Execute(&page, pairingPageData{
-		URL:        session.url,
-		Token:      session.token,
-		SPKIPin:    session.spki,
-		Line:       template.HTML(session.line),
-		QRDataURI:  session.qrDataURI,
+		URL:       session.url,
+		Token:     session.token,
+		SPKIPin:   session.spki,
+		Line:      template.HTML(session.line),
+		QRDataURI: session.qrDataURI,
 	}); err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
