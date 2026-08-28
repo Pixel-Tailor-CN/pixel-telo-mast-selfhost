@@ -107,6 +107,58 @@ func TestSelectPublicURLInteractiveAppendsPublicIP(t *testing.T) {
 	}
 }
 
+func TestInitDefaultListenInteractivePromptsAndWidensListen(t *testing.T) {
+	dir := t.TempDir()
+	previousInteractive := initInteractive
+	previousList := listLocalAddresses
+	previousLookup := lookupPublicIP
+	previousIn, previousOut := initStdin, initStdout
+	t.Cleanup(func() {
+		initInteractive = previousInteractive
+		listLocalAddresses = previousList
+		lookupPublicIP = previousLookup
+		initStdin = previousIn
+		initStdout = previousOut
+	})
+	initInteractive = func() bool { return true }
+	listLocalAddresses = func(string) []hostaddr.Candidate {
+		return []hostaddr.Candidate{{URL: "https://192.168.1.8:8443", IP: "192.168.1.8", Kind: hostaddr.KindLocal}}
+	}
+	lookupPublicIP = func(context.Context) (net.IP, error) { return nil, context.Canceled }
+	initStdin = strings.NewReader("1\n")
+	initStdout = ioDiscard()
+
+	if err := runInit([]string{"--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if !strings.Contains(got, "listen: \"0.0.0.0:8443\"") || !strings.Contains(got, "public_url: \"https://192.168.1.8:8443\"") {
+		t.Fatalf("config = %s", got)
+	}
+}
+
+func TestInitExplicitLoopbackListenSkipsPrompt(t *testing.T) {
+	dir := t.TempDir()
+	previous := initInteractive
+	t.Cleanup(func() { initInteractive = previous })
+	initInteractive = func() bool { return true }
+	if err := runInit([]string{"--dir", dir, "--listen", "127.0.0.1:8443"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if !strings.Contains(got, "listen: \"127.0.0.1:8443\"") || !strings.Contains(got, "public_url: \"https://127.0.0.1:8443\"") {
+		t.Fatalf("config = %s", got)
+	}
+}
+
 func TestInitWildcardListenUsesPromptSelection(t *testing.T) {
 	dir := t.TempDir()
 	previousInteractive := initInteractive
@@ -148,6 +200,15 @@ func TestCandidateAccessURLsListsConfiguredAndLocal(t *testing.T) {
 	}
 	got := candidateAccessURLs("0.0.0.0:8443", "https://mast.example.com:8443")
 	if len(got) < 2 || got[0] != "https://mast.example.com:8443" {
+		t.Fatalf("urls = %#v", got)
+	}
+}
+
+func TestCandidateAccessURLsSkippedForConcreteListen(t *testing.T) {
+	if got := candidateAccessURLs("127.0.0.1:8443", "https://127.0.0.1:8443"); len(got) != 0 {
+		t.Fatalf("urls = %#v", got)
+	}
+	if got := candidateAccessURLs("192.168.1.8:8443", "https://192.168.1.8:8443"); len(got) != 0 {
 		t.Fatalf("urls = %#v", got)
 	}
 }

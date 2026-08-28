@@ -148,7 +148,22 @@ func runningInContainer() bool {
 	return false
 }
 
+func listenIsUnspecified(listen string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(listen))
+	if err != nil {
+		return false
+	}
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		return true
+	}
+	return false
+}
+
 func candidateAccessURLs(listen, configured string) []string {
+	if !listenIsUnspecified(listen) {
+		return nil
+	}
 	port := hostaddr.ListenPort(listen)
 	seen := make(map[string]struct{})
 	var urls []string

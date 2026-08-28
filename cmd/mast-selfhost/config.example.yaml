@@ -21,9 +21,20 @@ rate_limit:
   requests_per_second: 1
   burst: 5
 upstream:
-  # 必须显式填写已获部署者授权使用的 Provider，例如：
-  # 通过 init --provider-id 显式选择已获授权的 Provider。
+  # 当前已支持的 Provider ID：sogou、360
+  # 必须显式填写已获部署者授权使用的项，列表顺序即默认查询优先级。
+  # 示例：provider_ids: ["sogou", "360"]
+  # 也可在 init 时重复传入 --provider-id sogou --provider-id 360
   provider_ids: {{.ProviderIDs}}
+# 可按上面的 ID 覆盖调度参数；未配置时使用默认并发 1、间隔 0、熔断 30s。
+# sogou:
+#   min_interval: "1s"
+#   max_concurrent: 1
+#   breaker_timeout: "30s"
+# "360":
+#   min_interval: "1s"
+#   max_concurrent: 1
+#   breaker_timeout: "30s"
 providers: {}
 log:
   level: "info"

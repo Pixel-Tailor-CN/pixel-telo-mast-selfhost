@@ -12,9 +12,18 @@ import (
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/storage/runtime"
 )
 
+func TestMain(m *testing.M) {
+	initInteractive = func() bool { return false }
+	os.Exit(m.Run())
+}
+
+func testInitArgs(dir string) []string {
+	return []string{"--dir", dir, "--public-url", "https://127.0.0.1:8443"}
+}
+
 func TestPrepareServeAndPairingPersistIdentityAndTLS(t *testing.T) {
 	dir := t.TempDir()
-	if err := runInit([]string{"--dir", dir}); err != nil {
+	if err := runInit(testInitArgs(dir)); err != nil {
 		t.Fatal(err)
 	}
 	makeTestConfigRunnable(t, filepath.Join(dir, "config.yaml"))
@@ -79,7 +88,7 @@ func TestPrepareServeAndPairingPersistIdentityAndTLS(t *testing.T) {
 
 func TestInitUsesConfiguredPaths(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "O'Brien")
-	if err := runInit([]string{"--dir", dir}); err != nil {
+	if err := runInit(testInitArgs(dir)); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
@@ -93,7 +102,7 @@ func TestInitUsesConfiguredPaths(t *testing.T) {
 
 func TestInitOnlyCreatesConfig(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "data")
-	if err := runInit([]string{"--dir", dir}); err != nil {
+	if err := runInit(testInitArgs(dir)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -111,6 +120,9 @@ func TestInitOnlyCreatesConfig(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "provider_ids: []") {
 		t.Fatalf("init should require explicit providers: %s", data)
+	}
+	if !strings.Contains(string(data), "listen: \"0.0.0.0:8443\"") {
+		t.Fatalf("init should listen on all interfaces: %s", data)
 	}
 	if !strings.Contains(string(data), "mode: \"auto\"") || !strings.Contains(string(data), "public_url: \"https://127.0.0.1:8443\"") {
 		t.Fatalf("init should default to auto TLS: %s", data)
@@ -154,6 +166,20 @@ func TestInitRejectsExistingConfig(t *testing.T) {
 	}
 }
 
+func TestInitDefaultListenIsUnspecified(t *testing.T) {
+	command := newInitCommand()
+	if err := command.ParseFlags(nil); err != nil {
+		t.Fatal(err)
+	}
+	listen, err := command.Flags().GetString("listen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listen != "0.0.0.0:8443" {
+		t.Fatalf("default listen = %q", listen)
+	}
+}
+
 func TestInitWritesPublicURL(t *testing.T) {
 	dir := t.TempDir()
 	if err := runInit([]string{"--dir", dir, "--listen", "0.0.0.0:8443", "--public-url", "https://192.168.1.8:8443"}); err != nil {
@@ -194,7 +220,7 @@ func TestPrepareServeRejectsDirectory(t *testing.T) {
 
 func TestPrepareServeValidatesBeforeCreatingToken(t *testing.T) {
 	dir := t.TempDir()
-	if err := runInit([]string{"--dir", dir}); err != nil {
+	if err := runInit(testInitArgs(dir)); err != nil {
 		t.Fatal(err)
 	}
 	makeTestConfigRunnable(t, filepath.Join(dir, "config.yaml"))
@@ -229,7 +255,7 @@ func TestPrepareServeValidatesBeforeCreatingToken(t *testing.T) {
 
 func TestPrepareServeCreatesAndReusesToken(t *testing.T) {
 	dir := t.TempDir()
-	if err := runInit([]string{"--dir", dir}); err != nil {
+	if err := runInit(testInitArgs(dir)); err != nil {
 		t.Fatal(err)
 	}
 	makeTestConfigRunnable(t, filepath.Join(dir, "config.yaml"))
@@ -334,7 +360,7 @@ func TestPairingRejectsConfigFlag(t *testing.T) {
 
 func TestRunServeContextLogsLifecycle(t *testing.T) {
 	dir := t.TempDir()
-	if err := runInit([]string{"--dir", dir}); err != nil {
+	if err := runInit(testInitArgs(dir)); err != nil {
 		t.Fatal(err)
 	}
 	makeTestConfigRunnable(t, filepath.Join(dir, "config.yaml"))
@@ -343,7 +369,7 @@ func TestRunServeContextLogsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = []byte(strings.Replace(string(data), "127.0.0.1:8443", "127.0.0.1:0", 1))
+	data = []byte(strings.Replace(string(data), "listen: \"0.0.0.0:8443\"", "listen: \"127.0.0.1:0\"", 1))
 	if err := os.WriteFile(configPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
