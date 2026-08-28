@@ -125,7 +125,7 @@ Windows Docker Desktop 把上面的 `"$HOME/mast-selfhost"` 换成例如 `D:\mas
 mast-selfhost-windows-amd64.exe init --dir data --listen 0.0.0.0:8443 --provider-id sogou --sync-on-start=false
 ```
 
-4. 默认监听 `0.0.0.0:8443`。没加 `--public-url` 时，终端会列出网卡地址让你选；选和手机同一 Wi-Fi 的那条，不要选 `127.0.0.1`。从 IDE 运行通常没有交互，请加上 `--public-url https://你的局域网IP:8443`。
+4. 没加 `--public-url` 时，命令会列出网卡地址让你选。选和手机同一 Wi-Fi 的那条，不要选 `127.0.0.1`。
 5. 启动：
 
 ```bat
