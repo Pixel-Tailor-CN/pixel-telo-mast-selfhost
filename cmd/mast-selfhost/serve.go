@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/app"
@@ -81,6 +82,14 @@ func serveContext(ctx context.Context, dir string) (resultErr error) {
 		"log_file", managedLogger.LogPath(),
 		"log_hint", "view this file for detailed logs",
 	)
+	for index, accessURL := range candidateAccessURLs(cfg.Server.Listen, cfg.TLS.PublicURL) {
+		source := "detected"
+		if index == 0 && strings.TrimRight(cfg.TLS.PublicURL, "/") == accessURL {
+			source = "configured"
+		}
+		slog.Info("candidate access url", "url", accessURL, "source", source)
+		managedLogger.ConsoleInfo("candidate access url", "url", accessURL, "source", source)
+	}
 	<-ctx.Done()
 	slog.Info("shutdown signal received")
 	if err := application.Close(context.Background()); err != nil {

@@ -148,10 +148,15 @@ func resolveInitTLS(listen, tlsMode, publicURL string) (string, string, error) {
 	publicURL = strings.TrimSpace(publicURL)
 	if publicURL == "" && tlsMode == "auto" {
 		inferred, ok := inferredPublicURL(listen)
-		if !ok {
-			return "", "", fmt.Errorf("tls public URL is required when listen is not a concrete host")
+		if ok {
+			publicURL = inferred
+		} else {
+			selected, err := selectPublicURL(listen)
+			if err != nil {
+				return "", "", err
+			}
+			publicURL = selected
 		}
-		publicURL = inferred
 	}
 	if publicURL != "" {
 		if err := validateInitPublicURL(publicURL); err != nil {

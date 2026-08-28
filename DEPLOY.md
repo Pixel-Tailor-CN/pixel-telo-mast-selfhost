@@ -37,7 +37,7 @@ Windows 安装包与家庭局域网最短路径见 README。`docker-compose.yml`
 - 只能使用公网 IP：申请 SAN 包含该 IP 的可信 IP 证书。
 - 私有或测试环境：使用 Self-host 自动生成的自签名证书，并通过配对信息校验 SPKI Pin。
 
-`init` 默认生成 `tls.mode=auto`。监听 `127.0.0.1` 时会自动填 `https://127.0.0.1:8443`；监听 `0.0.0.0` 时必须带 `--public-url`，否则 `init` 会失败。前置反代使用 `--tls-mode off --allow-insecure-private-network`。
+`init` 默认生成 `tls.mode=auto`。监听 `127.0.0.1` 时会自动填 `https://127.0.0.1:8443`。监听 `0.0.0.0` 且未传 `--public-url` 时：若在终端里运行，会列出本机网卡地址并可选查询公网 IP 供选择；非交互环境（Compose、CI）会打印检测到的地址并失败，需要显式传入 `--public-url`。容器内列出的地址通常不是手机能访问的宿主机 IP。前置反代使用 `--tls-mode off --allow-insecure-private-network`。`serve` 启动后会在控制台列出已配置 URL 和本机检测到的其它候选地址。
 
 ## 2. 网络模型
 

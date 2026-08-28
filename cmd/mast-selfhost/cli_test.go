@@ -170,8 +170,12 @@ func TestInitWritesPublicURL(t *testing.T) {
 }
 
 func TestInitRequiresPublicURLForWildcardListen(t *testing.T) {
-	if err := runInit([]string{"--dir", t.TempDir(), "--listen", "0.0.0.0:8443"}); err == nil {
-		t.Fatal("wildcard listen without public URL should be rejected")
+	previous := initInteractive
+	t.Cleanup(func() { initInteractive = previous })
+	initInteractive = func() bool { return false }
+	err := runInit([]string{"--dir", t.TempDir(), "--listen", "0.0.0.0:8443"})
+	if err == nil || !strings.Contains(err.Error(), "--public-url") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

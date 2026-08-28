@@ -53,7 +53,7 @@ docker compose exec mast-selfhost /mast-selfhost pairing --dir /app/data
 
 ## 快速开始：Docker 命令
 
-没有 compose 时也可以直接跑。把 `192.168.1.8` 换成局域网 IP。
+没有 compose 时也可以直接跑。容器里看到的网卡地址通常不是手机能用的，所以这里仍要填**宿主机局域网 IP**。
 
 ```bash
 export MAST_IMAGE=mystery0/pixel-telo-mast-selfhost:latest
@@ -122,17 +122,18 @@ Windows Docker Desktop 把上面的 `"$HOME/mast-selfhost"` 换成例如 `D:\mas
 3. 在该文件夹打开终端：
 
 ```bat
-mast-selfhost-windows-amd64.exe init --dir data --listen 0.0.0.0:8443 --public-url https://你的局域网IP:8443 --provider-id sogou --sync-on-start=false
+mast-selfhost-windows-amd64.exe init --dir data --listen 0.0.0.0:8443 --provider-id sogou --sync-on-start=false
 ```
 
-4. 启动：
+4. 若没加 `--public-url`，命令会列出本机网卡地址（以及可选的公网 IP），输入序号即可。选和手机同一 Wi-Fi 的那条，不要选 `127.0.0.1`。
+5. 启动：
 
 ```bat
 mast-selfhost-windows-amd64.exe serve --dir data
 ```
 
-5. 保持这个窗口开着。浏览器访问 `https://你的局域网IP:8443/` 确认「运行正常」。
-6. **另开一个终端**再取配对信息：
+6. 保持这个窗口开着。启动时会打印可尝试的访问地址。浏览器打开配对里的 `url`，确认「运行正常」。
+7. **另开一个终端**再取配对信息：
 
 ```bat
 mast-selfhost-windows-amd64.exe pairing --dir data
