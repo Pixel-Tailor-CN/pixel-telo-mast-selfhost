@@ -348,6 +348,22 @@ func (r *waitDoneRepository) SaveBatch(ctx context.Context, _ []*domain.Record) 
 	return ctx.Err()
 }
 
+type blockingSaveRepository struct {
+	stubRepository
+	started chan struct{}
+	release chan struct{}
+}
+
+func (r *blockingSaveRepository) SaveBatch(ctx context.Context, records []*domain.Record) error {
+	close(r.started)
+	select {
+	case <-r.release:
+		return r.stubRepository.SaveBatch(ctx, records)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func TestLookupSyncSaveCompletesBeforeReturn(t *testing.T) {
 	saved := make(chan []*domain.Record, 1)
 	repo := &delayedSaveRepository{
@@ -456,6 +472,71 @@ func TestSyncModeDoesNotStartAsyncWriter(t *testing.T) {
 	}
 	if err := svc.Close(); err != nil {
 		t.Fatal("Close must be idempotent")
+	}
+}
+
+func TestSyncModeCloseDoesNotRaceWithInFlightSave(t *testing.T) {
+	repo := &blockingSaveRepository{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	dispatcher := &stubDispatcher{results: map[string]*port.ProviderResult{
+		"a": {Source: "a", IsSpam: true, Tag: "营销"},
+	}}
+	svc, err := New(repo, dispatcher, port.NoopMetrics{}, Options{
+		QueryTimeout:   2 * time.Second,
+		SaveTimeout:    time.Second,
+		DefaultSources: []string{"a"},
+		CacheWriteMode: CacheWriteSync,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lookupDone := make(chan error, 1)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				lookupDone <- fmt.Errorf("lookup panic: %v", recovered)
+			}
+		}()
+		got, lookupErr := svc.Lookup(context.Background(), "13800138000")
+		if lookupErr != nil {
+			lookupDone <- lookupErr
+			return
+		}
+		if got == nil || got.Source != "a" || !got.IsSpam() {
+			lookupDone <- fmt.Errorf("record = %#v", got)
+			return
+		}
+		lookupDone <- nil
+	}()
+
+	select {
+	case <-repo.started:
+	case <-time.After(time.Second):
+		t.Fatal("SaveBatch did not start")
+	}
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- svc.Close() }()
+	select {
+	case closeErr := <-closeDone:
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close did not return")
+	}
+
+	close(repo.release)
+	select {
+	case lookupErr := <-lookupDone:
+		if lookupErr != nil {
+			t.Fatal(lookupErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Lookup did not return")
 	}
 }
 
