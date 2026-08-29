@@ -168,7 +168,7 @@ Vercel 模式和家里的 Docker / 二进制**不是同一套能力**：
 
 可用 `openssl rand -hex 32` 生成 Token。当前可填写的来源仍是 `sogou` 和 `360`。
 
-仓库根目录的 [`vercel.json`](vercel.json) 明确选择 Go Framework Preset，且不包含路径 rewrite。平台通过 `cmd/api/main.go` 启动服务。更完整的一键部署、手工部署、免费层检查、变量说明和排错见 [`DEPLOY.md`](DEPLOY.md)。
+仓库根目录的 [`vercel.json`](vercel.json) 明确选择 Go Framework Preset，且不包含路径 rewrite。构建脚本会把当前 Git commit 和最近可追溯的 Release tag 注入 `cmd/api`：正式 Tag 显示如 `0.2.0`，Tag 后的提交显示如 `0.2.0-dev+e9fcfc8`。更完整的一键部署、手工部署、免费层检查、变量说明和排错见 [`DEPLOY.md`](DEPLOY.md)。
 
 [vercel-deploy-button]: https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FPixel-Tailor-CN%2Fpixel-telo-mast-selfhost&env=MAST_TOKEN,MAST_PROVIDER_IDS&envDescription=%E9%9C%80%E8%A6%81%E8%87%B3%E5%B0%91%2032%20%E5%AD%97%E8%8A%82%E7%9A%84%20MAST_TOKEN%EF%BC%8C%E5%B9%B6%E6%98%8E%E7%A1%AE%E5%A1%AB%E5%86%99%20sogou%E3%80%81360%20%E6%88%96%20sogou%2C360%E3%80%82Neon%20%E4%BC%9A%E6%8F%90%E4%BE%9B%20DATABASE_URL%E3%80%82&project-name=pixel-telo-mast-selfhost&repository-name=pixel-telo-mast-selfhost&products=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22neon%22%2C%22productSlug%22%3A%22neon%22%2C%22protocol%22%3A%22storage%22%7D%5D
 

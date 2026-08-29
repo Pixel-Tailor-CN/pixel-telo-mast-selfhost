@@ -45,6 +45,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.7'
+      - name: Test Vercel build version resolution
+        run: bash scripts/vercel-build_test.sh
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -race ./...

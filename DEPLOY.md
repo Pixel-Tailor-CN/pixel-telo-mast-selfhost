@@ -572,7 +572,9 @@ Vercel 模式使用独立入口 `cmd/api` 和 `internal/app.BuildVercel`，不�
 - 本地 TLS、Token 文件和 `config.yaml`；
 - 跨 Vercel 实例的全局限流或 Provider 调度。
 
-仓库根目录的 [`vercel.json`](vercel.json) 明确设置 `"framework": "go"`，并且**不包含路径 rewrite**。Vercel Go Framework Preset 识别 `cmd/api/main.go`，应用监听平台注入的 `PORT`。不要为 `/` 或 `/api/*` 再加 catch-all rewrite。
+仓库根目录的 [`vercel.json`](vercel.json) 明确设置 `"framework": "go"`，并通过 `buildCommand` 调用 `scripts/vercel-build.sh`，且**不包含路径 rewrite**。构建脚本编译 `cmd/api/main.go`，应用监听平台注入的 `PORT`。不要为 `/` 或 `/api/*` 再加 catch-all rewrite。
+
+构建脚本优先使用 `VERCEL_GIT_COMMIT_SHA`，补全当前仓库历史并读取官方仓库的 Release tags，然后通过 ldflags 注入版本和完整 Commit。提交正好位于 `v0.2.0` 时版本为 `0.2.0`；位于该 Tag 之后时为 `0.2.0-dev+<短 Commit>`；无法找到可追溯 Release 时为 `dev+<短 Commit>`。版本解析或 Tag 获取不发生在运行时，不会增加冷启动外部依赖。
 
 ### 17.1 一键部署（推荐）
 
@@ -584,7 +586,7 @@ Vercel 模式使用独立入口 `cmd/api` 和 `internal/app.BuildVercel`，不�
 2. 创建 Vercel 项目，并读取仓库中的 Go Framework 配置。
 3. 要求安装 Neon Marketplace 产品，为项目注入 `DATABASE_URL`。
 4. 要求部署者填写 `MAST_TOKEN` 和 `MAST_PROVIDER_IDS`。
-5. 构建并启动 `cmd/api/main.go`。
+5. 解析当前 Git tag/commit，通过 ldflags 注入部署版本并构建 `cmd/api/main.go`。
 
 确认页面时必须注意：
 
