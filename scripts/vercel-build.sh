@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly upstream_git_url="https://github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost.git"
+upstream_git_url="${MAST_UPSTREAM_GIT_URL:-https://github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost.git}"
 
 fetch_version_history() {
+  git for-each-ref --format='delete %(refname)' refs/mast-release-tags/ | git update-ref --stdin
+
   if git remote get-url origin >/dev/null 2>&1; then
     if [[ "$(git rev-parse --is-shallow-repository 2>/dev/null || true)" == "true" ]]; then
       git fetch --quiet --tags --unshallow origin 2>/dev/null || \
@@ -20,24 +22,13 @@ fetch_version_history() {
 list_release_tags() {
   local ref
   local tag
-  local found=false
 
   while IFS= read -r ref; do
     tag="${ref#refs/mast-release-tags/}"
-    if [[ "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    if [[ "${tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
       printf '%s\t%s\n' "${tag}" "${ref}"
-      found=true
     fi
-  done < <(git for-each-ref --sort=-version:refname --format='%(refname)' refs/mast-release-tags/)
-
-  if [[ "${found}" == "false" ]]; then
-    while IFS= read -r ref; do
-      tag="${ref#refs/tags/}"
-      if [[ "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        printf '%s\t%s\n' "${tag}" "${ref}"
-      fi
-    done < <(git for-each-ref --sort=-version:refname --format='%(refname)' refs/tags/)
-  fi
+  done < <(git for-each-ref --format='%(refname)' refs/mast-release-tags/)
 }
 
 resolve_version() {
@@ -47,6 +38,8 @@ resolve_version() {
   local ref
   local tag_commit
   local base_tag=""
+  local base_distance=""
+  local distance
 
   while IFS=$'\t' read -r tag ref; do
     [[ -n "${tag}" && -n "${ref}" ]] || continue
@@ -56,8 +49,12 @@ resolve_version() {
       printf '%s\n' "${tag#v}"
       return
     fi
-    if [[ -z "${base_tag}" ]] && git merge-base --is-ancestor "${tag_commit}" "${commit_sha}" 2>/dev/null; then
-      base_tag="${tag}"
+    if git merge-base --is-ancestor "${tag_commit}" "${commit_sha}" 2>/dev/null; then
+      distance="$(git rev-list --count "${tag_commit}..${commit_sha}")"
+      if [[ -z "${base_distance}" || "${distance}" -lt "${base_distance}" || ("${distance}" == "${base_distance}" && "${tag}" > "${base_tag}") ]]; then
+        base_tag="${tag}"
+        base_distance="${distance}"
+      fi
     fi
   done < <(list_release_tags)
 
@@ -78,6 +75,10 @@ main() {
     printf 'invalid deployment commit SHA\n' >&2
     exit 1
   fi
+  commit_sha="$(git rev-parse "${commit_sha}^{commit}" 2>/dev/null)" || {
+    printf 'deployment commit SHA is not present in checkout\n' >&2
+    exit 1
+  }
 
   fetch_version_history
   version="$(resolve_version "${commit_sha}")"
