@@ -2,7 +2,7 @@
 
 只想在家里尽快跑起来、接到 Pixel Telo，请先看 [`README.md`](README.md)。
 
-本文面向已经熟悉 Linux、容器、DNS、TLS 或反向代理的部署者，说明如何把 Self-host 配成可长期运行的实例。本文不提供反馈、管理、Prometheus 或官方实时查询代理。
+本文面向已经熟悉 Linux、容器、DNS、TLS、反向代理或 Vercel 的部署者，说明如何把 Self-host 配成可长期运行的实例。本文不提供反馈、管理、Prometheus 或官方实时查询代理。家庭局域网、二进制和 Docker 仍是传统单进程路径；Vercel 是另一套 Composition Root，使用 PostgreSQL，能力并不完全同形，见第 17 节。
 
 发布页：<https://github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/releases>。仓库里的 `docker-compose.yml` 使用 `latest`，方便家庭用户跟随发布。需要可复现部署时，把镜像标签改成完整版本，例如 `v0.1.5`。
 
@@ -553,3 +553,94 @@ docker start mast-selfhost
 ### 16.5 pairing URL 不正确
 
 显式设置 `tls.public_url`。前置 TLS 模式必须填写客户端实际访问的 HTTPS 根 URL，不能使用后端 HTTP 地址。家庭局域网必须填电脑的局域网 IP 或可解析域名，不能填 `127.0.0.1`。
+
+### 16.6 Vercel 启动失败或 Pixel Telo 连不上
+
+- 三个环境变量缺一不可：`DATABASE_URL`、`MAST_TOKEN`、`MAST_PROVIDER_IDS`。Token 去掉首尾空白后必须至少 32 字节；Provider 列表不能为空，也没有预选值。
+- 未知 Provider ID 会在组装 Dispatcher 时阻止启动。
+- Vercel 没有配对页，`/p/:code` 返回 404。在 Pixel Telo 中手工填写 `https://<deployment>.vercel.app` 和同一个 `MAST_TOKEN`。
+- 限流、查询并发和 Provider 熔断只在单个 Go 进程内有效，不能当成全平台配额。
+
+## 17. 部署到 Vercel
+
+Vercel 模式使用独立入口 `cmd/api` 和 `internal/app.BuildVercel`，不调用传统 `App.Start`。它复用现有 Gin Router、Query Service 和 Provider，但用 PostgreSQL 保存 Runtime，并由平台终止 HTTPS。
+
+不要把 Vercel 部署理解成「把家里的 SQLite 目录搬上云」。首版明确禁用：
+
+- 官方 baseline 下载与 Overlay；
+- 配对页和 `spki_pairing`；
+- 本地 TLS、Token 文件和 `config.yaml`；
+- 跨 Vercel 实例的全局限流或 Provider 调度。
+
+仓库根目录的 [`vercel.json`](vercel.json) 只提供 schema 声明，**不包含路径 rewrite**。Vercel Go Framework Preset 识别 `cmd/api/main.go`，应用监听平台注入的 `PORT`。不要为 `/` 或 `/api/*` 再加 catch-all rewrite。
+
+### 17.1 必填环境变量
+
+| 变量 | 规则 |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL 连接串，去空白后不能为空。生产环境不要关闭 TLS 校验，也不要把完整 URL 写入日志。 |
+| `MAST_TOKEN` | 与 Token 文件相同的规则：去首尾空白后至少 32 字节。不自动生成，不写入日志或响应。 |
+| `MAST_PROVIDER_IDS` | 逗号分隔的 Provider ID。拆分后 trim、去空、按首次出现顺序去重，最终列表必须非空。没有默认值。 |
+
+当前可注册 ID 仍是 `sogou` 和 `360`。未知 ID 会阻止初始化。Deploy 时不要预填任何 Provider；启用前请自行评估第三方条款、访问政策和许可。
+
+生成 Token 示例：
+
+```bash
+openssl rand -hex 32
+```
+
+### 17.2 PostgreSQL
+
+需要可从 Vercel 函数网络访问的 PostgreSQL。应用在启动时打开连接池、执行嵌入 migration，并在 `runtime_metadata` 中创建或读取稳定 Instance ID。
+
+当前连接池固定为最多 2 个打开连接、1 个空闲连接。多个实例并发启动时，migration 使用 PostgreSQL advisory lock，只允许一个实例执行未应用版本。已发布 migration 不会被修改。
+
+Runtime 只保存骚扰查询缓存和实例元数据，不保存非骚扰结果，也不设置 TTL。
+
+### 17.3 固定运行参数
+
+Vercel 首版不读取 YAML，下列值写在 Composition Root 中：
+
+| 项 | 值 |
+| --- | --- |
+| Provider 查询超时 | 2s |
+| 同步缓存写入超时 | 500ms |
+| 查询并发 | 4 |
+| 实例限流 | 1 req/s，burst 5 |
+| capabilities | 仅 `query_v2` |
+| pairing / baseline / 本地 TLS | 禁用 |
+| 日志 | stdout JSON `slog` |
+
+查询得到骚扰结果后，会在 HTTP 返回前同步写入 PostgreSQL，最多再等 500ms。写入失败或超时仍返回有效 Provider 结果，不会启动异步 writer。
+
+### 17.4 HTTPS 与 Pixel Telo
+
+公网 HTTPS 由 Vercel 管理。应用不计算平台证书的 SPKI，也不提供配对页。把 Pixel Telo 的服务地址设为部署的 HTTPS 根 URL，例如 `https://<project>.vercel.app`，Token 填同一个 `MAST_TOKEN`。
+
+验证：
+
+```bash
+curl --fail --show-error https://<project>.vercel.app/api/health
+
+curl --fail --show-error \
+  -H "Authorization: Bearer ${MAST_TOKEN}" \
+  https://<project>.vercel.app/api/selfhost/v1/info
+
+curl --fail --show-error \
+  -H "Authorization: Bearer ${MAST_TOKEN}" \
+  https://<project>.vercel.app/api/v2/sources
+```
+
+info 的 `capabilities` 必须只有 `query_v2`。`/p/test`、`/api/v1/query` 和 `/metrics` 应为 404。
+
+### 17.5 单实例限制
+
+Vercel 可以水平扩容。Token Bucket、查询并发、Provider semaphore、最小间隔和 Circuit Breaker 都只存在于单个 Go 进程内存中，不是跨实例的全局约束。首版面向个人或家庭小规模使用，不引入 Redis 或分布式限流。
+
+### 17.6 不要做的事
+
+- 不要把 `DATABASE_URL` 或 `MAST_TOKEN` 提交到 Git、Issue 或构建日志。
+- 不要指望失败查询自动回退到官方 Mast。
+- 不要把 Vercel 临时文件系统当成 Runtime。
+- 不要为了「和家里一样」去打开 pairing 或 baseline；当前代码路径未提供这两项。

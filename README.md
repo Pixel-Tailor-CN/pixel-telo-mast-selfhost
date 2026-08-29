@@ -9,7 +9,8 @@
 | 你想做什么 | 看哪里 |
 | --- | --- |
 | 不想懂原理，先在家里跑起来 | 下面的「快速开始」 |
-| 域名证书、反代、限流、备份升级 | [`DEPLOY.md`](DEPLOY.md) |
+| 部署到 Vercel（自己准备 PostgreSQL） | 下面的「部署到 Vercel」 |
+| 域名证书、反代、限流、备份升级、Vercel 限制 | [`DEPLOY.md`](DEPLOY.md) |
 
 快速开始使用镜像标签 `latest`。需要钉死版本时，请到 [Releases](https://github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/releases) 选完整版本号。
 
@@ -136,6 +137,29 @@ mast-selfhost-windows-amd64.exe pairing --dir data
 
 Windows 防火墙如果询问，允许专用网络访问。手机必须能访问配对页上的地址，不要用 `127.0.0.1`。
 
+## 部署到 Vercel
+
+适合不想在家里长期开电脑、可以自己准备 PostgreSQL 的人。这不是官方查询代理，失败时也**不会**把号码转到 Pixel Telo 官方实时查询。
+
+Vercel 模式和家里的 Docker / 二进制**不是同一套能力**：
+
+- 没有配对页，也没有 SPKI Pin。要在 Pixel Telo 里手工填写 HTTPS 地址和 Token。
+- 没有官方 baseline，也没有本地 SQLite。
+- HTTPS 由 Vercel 提供，应用不管理证书。
+- 限流、Provider 并发和熔断只对**单个 Go 进程**有效，多实例之间不共享。
+
+三个环境变量都必须由部署者填写，**没有默认 Provider**：
+
+| 变量 | 要求 |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL 连接串。不要把完整值写进文档、截图或日志。 |
+| `MAST_TOKEN` | Bearer Token，去掉首尾空白后至少 32 字节。服务端**不会**自动生成。 |
+| `MAST_PROVIDER_IDS` | 逗号分隔的来源 ID，例如 `sogou` 或 `sogou,360`。不能留空。启用前请自己确认网页服务条款。 |
+
+可用 `openssl rand -hex 32` 生成 Token。当前可填写的来源仍是 `sogou` 和 `360`。
+
+仓库根目录有最小 [`vercel.json`](vercel.json)，不包含路径 rewrite。平台通过 `cmd/api` 识别 Go Framework Preset。更完整的变量说明、限制和排错见 [`DEPLOY.md`](DEPLOY.md)。
+
 ## 走不通时先看这里
 
 | 现象 | 常见原因 |
@@ -154,7 +178,7 @@ Windows 防火墙如果询问，允许专用网络访问。手机必须能访问
 - 不会把号码转发到官方实时查询。
 - 没有网页管理后台，没有账号系统。家里人或手机共用同一个 Token。
 - 没有查询反馈、没有 Prometheus、没有 `/metrics`。
-- 公网不要用裸 HTTP。快速开始用的是自签名 HTTPS，只适合家庭局域网。要挂到公网，请按 [`DEPLOY.md`](DEPLOY.md) 换可信证书或前置反代。
+- 公网不要用裸 HTTP。快速开始用的是自签名 HTTPS，只适合家庭局域网。要挂到公网，请按 [`DEPLOY.md`](DEPLOY.md) 换可信证书、前置反代，或使用 Vercel 托管 HTTPS。
 
 浏览器打开首页 `https://你的地址:8443/` 和健康检查 `/api/health` 不需要 Token。其余接口都要 Token。
 
