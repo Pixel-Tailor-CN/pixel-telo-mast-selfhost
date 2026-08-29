@@ -99,7 +99,11 @@ func ReadToken(path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read auth token: %w", err)
 	}
-	token = []byte(strings.TrimSpace(string(token)))
+	return normalizeAuthToken(token)
+}
+
+func normalizeAuthToken(raw []byte) ([]byte, error) {
+	token := []byte(strings.TrimSpace(string(raw)))
 	if len(token) < 32 {
 		return nil, fmt.Errorf("auth token must contain at least 32 bytes")
 	}
