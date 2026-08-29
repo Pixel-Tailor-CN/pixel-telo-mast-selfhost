@@ -39,6 +39,22 @@ func TestOpenRejectsMalformedDatabaseURLWithoutLeakingSecret(t *testing.T) {
 	}
 }
 
+func TestOpenRejectsInvalidPgxDatabaseURLWithoutLeakingSecret(t *testing.T) {
+	const sentinel = "sentinel-secret-password"
+	invalid := "postgres://user:" + sentinel + "@127.0.0.1:5432/mast_test?connect_timeout=not-a-number"
+	_, err := Open(context.Background(), invalid)
+	if err == nil {
+		t.Fatal("expected error for invalid postgres database url")
+	}
+	message := err.Error()
+	if strings.Contains(message, sentinel) {
+		t.Fatalf("error leaked sentinel password: %q", message)
+	}
+	if strings.Contains(message, invalid) {
+		t.Fatalf("error leaked database url: %q", message)
+	}
+}
+
 func TestOpenFailsOnUnreachableDatabase(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

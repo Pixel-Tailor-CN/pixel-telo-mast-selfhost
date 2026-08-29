@@ -13,7 +13,8 @@ import (
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/domain"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/port"
 	"github.com/google/uuid"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 const (
@@ -37,10 +38,12 @@ func Open(ctx context.Context, databaseURL string) (*Repository, error) {
 	if err := validateDatabaseURL(databaseURL); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("pgx", databaseURL)
+	config, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("open postgres database: %w", err)
+		// 不 wrap pgx 解析错误，避免无效参数把完整 DSN 或密码带进日志。
+		return nil, errors.New("postgres database url is invalid")
 	}
+	db := stdlib.OpenDB(*config)
 	db.SetMaxOpenConns(maxOpenConns)
 	db.SetMaxIdleConns(maxIdleConns)
 	db.SetConnMaxLifetime(connMaxLifetime)
