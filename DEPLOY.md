@@ -572,9 +572,45 @@ Vercel 模式使用独立入口 `cmd/api` 和 `internal/app.BuildVercel`，不�
 - 本地 TLS、Token 文件和 `config.yaml`；
 - 跨 Vercel 实例的全局限流或 Provider 调度。
 
-仓库根目录的 [`vercel.json`](vercel.json) 只提供 schema 声明，**不包含路径 rewrite**。Vercel Go Framework Preset 识别 `cmd/api/main.go`，应用监听平台注入的 `PORT`。不要为 `/` 或 `/api/*` 再加 catch-all rewrite。
+仓库根目录的 [`vercel.json`](vercel.json) 明确设置 `"framework": "go"`，并且**不包含路径 rewrite**。Vercel Go Framework Preset 识别 `cmd/api/main.go`，应用监听平台注入的 `PORT`。不要为 `/` 或 `/api/*` 再加 catch-all rewrite。
 
-### 17.1 必填环境变量
+### 17.1 一键部署（推荐）
+
+[![Deploy with Vercel](https://vercel.com/button)][vercel-deploy-button]
+
+按钮使用 Vercel 官方 Project Creation Flow，执行以下工作：
+
+1. 把本仓库克隆到部署者自己的 GitHub、GitLab 或 Bitbucket。
+2. 创建 Vercel 项目，并读取仓库中的 Go Framework 配置。
+3. 要求安装 Neon Marketplace 产品，为项目注入 `DATABASE_URL`。
+4. 要求部署者填写 `MAST_TOKEN` 和 `MAST_PROVIDER_IDS`。
+5. 构建并启动 `cmd/api/main.go`。
+
+确认页面时必须注意：
+
+- Neon 套餐应明确显示 **Free**；本文不要求也不建议开通付费套餐。
+- `MAST_TOKEN` 不提供默认值，去空白后必须至少 32 字节。
+- `MAST_PROVIDER_IDS` 不提供默认值或预选项。必须由部署者主动填写 `sogou`、`360` 或 `sogou,360`，并自行确认第三方条款。
+- Neon 应自动提供 `DATABASE_URL`。如果部署页面仍要求手工填写，先确认 Neon 已成功连接到当前项目，不要随意复制其他环境的数据库凭据。
+- Project Creation Flow 的首次部署通常会成为 Production deployment。若只想测试 Preview，应在项目创建后再从分支或 CLI 创建 Preview deployment。
+- Preview deployment 可能启用 Deployment Protection。Pixel Telo 无法完成 Vercel 登录，因此实际接入时应使用可公开访问的 HTTPS deployment，或按 Vercel 安全策略为目标 deployment 配置适合客户端的访问方式。
+
+部署完成后，到 Vercel Project Settings 检查：
+
+```text
+Framework Preset: Go
+DATABASE_URL: 已设置
+MAST_TOKEN: 已设置且为 Secret
+MAST_PROVIDER_IDS: 已设置
+```
+
+不要在截图、终端记录或工单中展示变量值。
+
+### 17.2 手工部署
+
+不使用按钮时，可以手工导入仓库并创建或连接任意 PostgreSQL。项目必须选择 Go Framework Preset，并设置下一节列出的三个变量。Neon 只是推荐路径，不是运行时依赖；应用只要求兼容 PostgreSQL 的 `DATABASE_URL`。
+
+### 17.3 必填环境变量
 
 | 变量 | 规则 |
 | --- | --- |
@@ -590,7 +626,7 @@ Vercel 模式使用独立入口 `cmd/api` 和 `internal/app.BuildVercel`，不�
 openssl rand -hex 32
 ```
 
-### 17.2 PostgreSQL
+### 17.4 PostgreSQL
 
 需要可从 Vercel 函数网络访问的 PostgreSQL。应用在启动时打开连接池、执行嵌入 migration，并在 `runtime_metadata` 中创建或读取稳定 Instance ID。
 
@@ -598,7 +634,7 @@ openssl rand -hex 32
 
 Runtime 只保存骚扰查询缓存和实例元数据，不保存非骚扰结果，也不设置 TTL。
 
-### 17.3 固定运行参数
+### 17.5 固定运行参数
 
 Vercel 首版不读取 YAML，下列值写在 Composition Root 中：
 
@@ -614,7 +650,7 @@ Vercel 首版不读取 YAML，下列值写在 Composition Root 中：
 
 查询得到骚扰结果后，会在 HTTP 返回前同步写入 PostgreSQL，最多再等 500ms。写入失败或超时仍返回有效 Provider 结果，不会启动异步 writer。
 
-### 17.4 HTTPS 与 Pixel Telo
+### 17.6 HTTPS 与 Pixel Telo
 
 公网 HTTPS 由 Vercel 管理。应用不计算平台证书的 SPKI，也不提供配对页。把 Pixel Telo 的服务地址设为部署的 HTTPS 根 URL，例如 `https://<project>.vercel.app`，Token 填同一个 `MAST_TOKEN`。
 
@@ -634,13 +670,15 @@ curl --fail --show-error \
 
 info 的 `capabilities` 必须只有 `query_v2`。`/p/test`、`/api/v1/query` 和 `/metrics` 应为 404。
 
-### 17.5 单实例限制
+### 17.7 单实例限制
 
 Vercel 可以水平扩容。Token Bucket、查询并发、Provider semaphore、最小间隔和 Circuit Breaker 都只存在于单个 Go 进程内存中，不是跨实例的全局约束。首版面向个人或家庭小规模使用，不引入 Redis 或分布式限流。
 
-### 17.6 不要做的事
+### 17.8 不要做的事
 
 - 不要把 `DATABASE_URL` 或 `MAST_TOKEN` 提交到 Git、Issue 或构建日志。
 - 不要指望失败查询自动回退到官方 Mast。
 - 不要把 Vercel 临时文件系统当成 Runtime。
 - 不要为了「和家里一样」去打开 pairing 或 baseline；当前代码路径未提供这两项。
+
+[vercel-deploy-button]: https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FPixel-Tailor-CN%2Fpixel-telo-mast-selfhost&env=MAST_TOKEN,MAST_PROVIDER_IDS&envDescription=%E9%9C%80%E8%A6%81%E8%87%B3%E5%B0%91%2032%20%E5%AD%97%E8%8A%82%E7%9A%84%20MAST_TOKEN%EF%BC%8C%E5%B9%B6%E6%98%8E%E7%A1%AE%E5%A1%AB%E5%86%99%20sogou%E3%80%81360%20%E6%88%96%20sogou%2C360%E3%80%82Neon%20%E4%BC%9A%E6%8F%90%E4%BE%9B%20DATABASE_URL%E3%80%82&project-name=pixel-telo-mast-selfhost&repository-name=pixel-telo-mast-selfhost&products=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22neon%22%2C%22productSlug%22%3A%22neon%22%2C%22protocol%22%3A%22storage%22%7D%5D

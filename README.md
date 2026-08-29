@@ -139,7 +139,17 @@ Windows 防火墙如果询问，允许专用网络访问。手机必须能访问
 
 ## 部署到 Vercel
 
-适合不想在家里长期开电脑、可以自己准备 PostgreSQL 的人。这不是官方查询代理，失败时也**不会**把号码转到 Pixel Telo 官方实时查询。
+适合不想在家里长期开电脑的人。一键部署流程会引导创建 Vercel 项目和 Neon PostgreSQL，并要求你亲自填写 Token 和 Provider。这不是官方查询代理，失败时也**不会**把号码转到 Pixel Telo 官方实时查询。
+
+[![Deploy with Vercel](https://vercel.com/button)][vercel-deploy-button]
+
+一键部署步骤：
+
+1. 点击按钮，把仓库克隆到自己的 Git 提供商并创建 Vercel 项目。
+2. 按提示安装 Neon；提交前确认套餐显示 **Free**，不要选择付费套餐。
+3. 填写 `MAST_TOKEN`，可先在本机运行 `openssl rand -hex 32` 生成。
+4. 明确填写 `MAST_PROVIDER_IDS`，例如 `sogou` 或 `sogou,360`；按钮不会预填 Provider。
+5. 部署成功后，把 Vercel 的 HTTPS 根地址和同一个 `MAST_TOKEN` 手工填入 Pixel Telo。
 
 Vercel 模式和家里的 Docker / 二进制**不是同一套能力**：
 
@@ -158,7 +168,9 @@ Vercel 模式和家里的 Docker / 二进制**不是同一套能力**：
 
 可用 `openssl rand -hex 32` 生成 Token。当前可填写的来源仍是 `sogou` 和 `360`。
 
-仓库根目录有最小 [`vercel.json`](vercel.json)，不包含路径 rewrite。平台通过 `cmd/api` 识别 Go Framework Preset。更完整的变量说明、限制和排错见 [`DEPLOY.md`](DEPLOY.md)。
+仓库根目录的 [`vercel.json`](vercel.json) 明确选择 Go Framework Preset，且不包含路径 rewrite。平台通过 `cmd/api/main.go` 启动服务。更完整的一键部署、手工部署、免费层检查、变量说明和排错见 [`DEPLOY.md`](DEPLOY.md)。
+
+[vercel-deploy-button]: https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FPixel-Tailor-CN%2Fpixel-telo-mast-selfhost&env=MAST_TOKEN,MAST_PROVIDER_IDS&envDescription=%E9%9C%80%E8%A6%81%E8%87%B3%E5%B0%91%2032%20%E5%AD%97%E8%8A%82%E7%9A%84%20MAST_TOKEN%EF%BC%8C%E5%B9%B6%E6%98%8E%E7%A1%AE%E5%A1%AB%E5%86%99%20sogou%E3%80%81360%20%E6%88%96%20sogou%2C360%E3%80%82Neon%20%E4%BC%9A%E6%8F%90%E4%BE%9B%20DATABASE_URL%E3%80%82&project-name=pixel-telo-mast-selfhost&repository-name=pixel-telo-mast-selfhost&products=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22neon%22%2C%22productSlug%22%3A%22neon%22%2C%22protocol%22%3A%22storage%22%7D%5D
 
 ## 走不通时先看这里
 
