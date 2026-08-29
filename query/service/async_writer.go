@@ -7,6 +7,18 @@ import (
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/domain"
 )
 
+func (s *Service) saveRecords(ctx context.Context, records []*domain.Record) {
+	if s.cacheWriteMode == CacheWriteSync {
+		saveCtx, cancel := context.WithTimeout(ctx, s.saveTimeout)
+		defer cancel()
+		if err := s.repo.SaveBatch(saveCtx, records); err != nil {
+			slog.Error("failed to save query records synchronously", "count", len(records), "error_type", errorType(err))
+		}
+		return
+	}
+	s.enqueueSave(records)
+}
+
 func (s *Service) enqueueSave(records []*domain.Record) {
 	s.saveMu.RLock()
 	defer s.saveMu.RUnlock()

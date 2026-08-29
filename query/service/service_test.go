@@ -323,6 +323,142 @@ func TestRepositoryErrorsDoNotLeakPhoneToLogs(t *testing.T) {
 	}
 }
 
+type delayedSaveRepository struct {
+	stubRepository
+	delay time.Duration
+}
+
+func (r *delayedSaveRepository) SaveBatch(ctx context.Context, records []*domain.Record) error {
+	timer := time.NewTimer(r.delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return r.stubRepository.SaveBatch(ctx, records)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+type waitDoneRepository struct {
+	stubRepository
+}
+
+func (r *waitDoneRepository) SaveBatch(ctx context.Context, _ []*domain.Record) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestLookupSyncSaveCompletesBeforeReturn(t *testing.T) {
+	saved := make(chan []*domain.Record, 1)
+	repo := &delayedSaveRepository{
+		stubRepository: stubRepository{saved: saved},
+		delay:          80 * time.Millisecond,
+	}
+	dispatcher := &stubDispatcher{results: map[string]*port.ProviderResult{
+		"a": {Source: "a", IsSpam: true, Tag: "营销"},
+	}}
+	svc, err := New(repo, dispatcher, port.NoopMetrics{}, Options{
+		QueryTimeout:   2 * time.Second,
+		DefaultSources: []string{"a"},
+		CacheWriteMode: CacheWriteSync,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+
+	got, err := svc.Lookup(context.Background(), "13800138000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.Source != "a" || !got.IsSpam() {
+		t.Fatalf("record = %#v", got)
+	}
+
+	select {
+	case records := <-saved:
+		if len(records) != 1 || records[0].Source != "a" || !records[0].IsSpam() {
+			t.Fatalf("saved records = %#v", records)
+		}
+	default:
+		t.Fatal("Lookup returned before SaveBatch completed")
+	}
+}
+
+func TestLookupSyncSaveFailurePreservesProviderResult(t *testing.T) {
+	saveErr := errors.New("disk full")
+	repo := &stubRepository{saveErr: saveErr}
+	dispatcher := &stubDispatcher{results: map[string]*port.ProviderResult{
+		"a": {Source: "a", IsSpam: true, Tag: "营销"},
+	}}
+	svc, err := New(repo, dispatcher, port.NoopMetrics{}, Options{
+		QueryTimeout:   2 * time.Second,
+		DefaultSources: []string{"a"},
+		CacheWriteMode: CacheWriteSync,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+
+	got, err := svc.Lookup(context.Background(), "13800138000")
+	if err != nil {
+		t.Fatalf("save error must not hide provider result: %v", err)
+	}
+	if got == nil || got.Source != "a" || got.Tag != "营销" || !got.IsSpam() {
+		t.Fatalf("record = %#v", got)
+	}
+}
+
+func TestSyncModeSaveTimeoutReturnsProviderResult(t *testing.T) {
+	repo := &waitDoneRepository{}
+	dispatcher := &stubDispatcher{results: map[string]*port.ProviderResult{
+		"a": {Source: "a", IsSpam: true, Tag: "营销"},
+	}}
+	svc, err := New(repo, dispatcher, port.NoopMetrics{}, Options{
+		QueryTimeout:   2 * time.Second,
+		SaveTimeout:    20 * time.Millisecond,
+		DefaultSources: []string{"a"},
+		CacheWriteMode: CacheWriteSync,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+
+	started := time.Now()
+	got, err := svc.Lookup(context.Background(), "13800138000")
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("save timeout must not hide provider result: %v", err)
+	}
+	if got == nil || got.Source != "a" || !got.IsSpam() {
+		t.Fatalf("record = %#v", got)
+	}
+	if elapsed > 300*time.Millisecond {
+		t.Fatalf("Lookup took %v, want to return around save timeout", elapsed)
+	}
+}
+
+func TestSyncModeDoesNotStartAsyncWriter(t *testing.T) {
+	svc, err := New(&stubRepository{}, &stubDispatcher{}, port.NoopMetrics{}, Options{
+		DefaultSources: []string{"a"},
+		CacheWriteMode: CacheWriteSync,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if svc.asyncSaveCh != nil {
+		t.Fatal("sync mode must not create async save channel")
+	}
+	if err := svc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Close(); err != nil {
+		t.Fatal("Close must be idempotent")
+	}
+}
+
 func TestCloseDoesNotRaceWithInFlightLookup(t *testing.T) {
 	dispatcher := &blockingDispatcher{
 		started: make(chan struct{}),

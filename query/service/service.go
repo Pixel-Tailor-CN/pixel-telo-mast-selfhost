@@ -20,6 +20,16 @@ const (
 	defaultQueryTime   = 2 * time.Second
 )
 
+// CacheWriteMode 控制查询结果写回缓存的方式。
+type CacheWriteMode int
+
+const (
+	// CacheWriteAsync 在查询返回后异步写入缓存，是零值，保证现有调用方行为不变。
+	CacheWriteAsync CacheWriteMode = iota
+	// CacheWriteSync 在查询返回前使用独立超时同步写入缓存。
+	CacheWriteSync
+)
+
 // Options 定义查询核心的运行参数。
 type Options struct {
 	QueryTimeout   time.Duration
@@ -27,9 +37,10 @@ type Options struct {
 	AsyncQueueSize int
 	DisableCache   bool
 	DefaultSources []string
+	CacheWriteMode CacheWriteMode
 }
 
-// Service 负责缓存判定、缺失 source 补查、优先级选择和异步写回。
+// Service 负责缓存判定、缺失 source 补查、优先级选择和缓存写回。
 type Service struct {
 	repo           port.QueryRepository
 	dispatcher     port.ProviderDispatcher
@@ -39,6 +50,7 @@ type Service struct {
 	disableCache   bool
 	defaultSources []string
 	enabledSources map[string]struct{}
+	cacheWriteMode CacheWriteMode
 	asyncSaveCh    chan []*domain.Record
 	saveMu         sync.RWMutex
 	closed         bool
@@ -89,22 +101,30 @@ func New(repo port.QueryRepository, dispatcher port.ProviderDispatcher, metrics 
 		disableCache:   options.DisableCache,
 		defaultSources: defaultSources,
 		enabledSources: enabledSources,
-		asyncSaveCh:    make(chan []*domain.Record, options.AsyncQueueSize),
+		cacheWriteMode: options.CacheWriteMode,
 	}
-	svc.wg.Add(1)
-	go svc.asyncWriter()
+	if options.CacheWriteMode != CacheWriteSync {
+		svc.asyncSaveCh = make(chan []*domain.Record, options.AsyncQueueSize)
+		svc.wg.Add(1)
+		go svc.asyncWriter()
+	}
 	return svc, nil
 }
 
-// Close 排空并关闭异步写入器。
+// Close 排空并关闭异步写入器；同步模式没有 writer，调用仍幂等。
 func (s *Service) Close() error {
 	s.closeOnce.Do(func() {
 		s.saveMu.Lock()
 		s.closed = true
-		close(s.asyncSaveCh)
+		ch := s.asyncSaveCh
+		if ch != nil {
+			close(ch)
+		}
 		s.saveMu.Unlock()
-		s.wg.Wait()
-		slog.Info("query service async writer closed")
+		if ch != nil {
+			s.wg.Wait()
+			slog.Info("query service async writer closed")
+		}
 	})
 	return nil
 }
@@ -194,7 +214,7 @@ func (s *Service) lookupWithMode(ctx context.Context, phone string, requested, e
 			}
 		}
 		if len(spamRecords) > 0 && !s.disableCache {
-			s.enqueueSave(spamRecords)
+			s.saveRecords(ctx, spamRecords)
 		}
 
 		if result := selectAvailableResult(effective, records); result != nil {
