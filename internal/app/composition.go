@@ -30,6 +30,8 @@ type CompositionOptions struct {
 	Logger        *slog.Logger
 }
 
+// RateLimitOptions 注入查询限流。全零表示未注入，compose 会把 Handler.Limiter 留空，
+// 由 httpapi.Handler.Register 使用默认 limiter；任一字段非正且并非全零时返回构造错误。
 type RateLimitOptions struct {
 	RequestsPerSecond float64
 	Burst             int
@@ -43,6 +45,10 @@ type Composition struct {
 }
 
 func compose(options CompositionOptions) (*Composition, error) {
+	limiter, err := queryLimiter(options.RateLimit)
+	if err != nil {
+		return nil, err
+	}
 	dispatcher, err := provider.NewDispatcher(provider.Config{Sources: options.ProviderSources})
 	if err != nil {
 		return nil, err
@@ -55,7 +61,7 @@ func compose(options CompositionOptions) (*Composition, error) {
 		Service:       query,
 		Headers:       security.ServerHeaders{Version: options.Version, APIVersion: "2", InstanceID: options.InstanceID},
 		Token:         options.Token,
-		Limiter:       security.NewQueryLimiter(options.RateLimit.RequestsPerSecond, options.RateLimit.Burst, options.RateLimit.MaxConcurrent),
+		Limiter:       limiter,
 		BuildCommit:   options.Commit,
 		Capabilities:  options.Capabilities,
 		EnablePairing: options.EnablePairing,
@@ -70,4 +76,14 @@ func compose(options CompositionOptions) (*Composition, error) {
 		}
 	}
 	return &Composition{Router: NewRouter(handler, options.Logger), Query: query, Handler: handler}, nil
+}
+
+func queryLimiter(options RateLimitOptions) (*security.QueryLimiter, error) {
+	if options == (RateLimitOptions{}) {
+		return nil, nil
+	}
+	if options.RequestsPerSecond <= 0 || options.Burst <= 0 || options.MaxConcurrent <= 0 {
+		return nil, fmt.Errorf("rate limit options must be positive when any field is set")
+	}
+	return security.NewQueryLimiter(options.RequestsPerSecond, options.Burst, options.MaxConcurrent), nil
 }

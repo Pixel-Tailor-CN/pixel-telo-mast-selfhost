@@ -93,6 +93,68 @@ func TestComposeRegistersSharedRoutesWithoutPairing(t *testing.T) {
 	}
 }
 
+func TestComposeUsesDefaultLimiterWhenRateLimitUnset(t *testing.T) {
+	token := bytes.Repeat([]byte("t"), 32)
+	composition, err := compose(CompositionOptions{
+		Repository:      stubRepository{},
+		ProviderSources: []provider.SourceConfig{{ID: "sogou"}},
+		QueryOptions:    service.Options{DefaultSources: []string{"sogou"}},
+		Token:           token,
+		Version:         "compose-version",
+		Commit:          "compose-commit",
+		InstanceID:      "compose-instance",
+		Capabilities:    []string{"query_v2"},
+		EnablePairing:   false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = composition.Query.Close() })
+
+	if composition.Handler.Limiter == nil {
+		t.Fatal("default limiter should be installed during register")
+	}
+
+	rec := serve(composition.Router, http.MethodPost, "/api/v2/query", `{}`, true, token)
+	if rec.Code == http.StatusTooManyRequests {
+		t.Fatalf("unset rate limit must not reject v2 query: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestComposeRejectsPartialNonPositiveRateLimit(t *testing.T) {
+	token := bytes.Repeat([]byte("t"), 32)
+	base := CompositionOptions{
+		Repository:      stubRepository{},
+		ProviderSources: []provider.SourceConfig{{ID: "sogou"}},
+		QueryOptions:    service.Options{DefaultSources: []string{"sogou"}},
+		Token:           token,
+		Capabilities:    []string{"query_v2"},
+	}
+	cases := []RateLimitOptions{
+		{RequestsPerSecond: 1},
+		{Burst: 1},
+		{MaxConcurrent: 1},
+		{RequestsPerSecond: 1, Burst: 1},
+		{RequestsPerSecond: 1, Burst: 1, MaxConcurrent: 0},
+		{RequestsPerSecond: -1, Burst: 1, MaxConcurrent: 1},
+		{RequestsPerSecond: 1, Burst: -1, MaxConcurrent: 1},
+		{RequestsPerSecond: 1, Burst: 1, MaxConcurrent: -1},
+		{RequestsPerSecond: -1, Burst: -1, MaxConcurrent: -1},
+	}
+	for _, rateLimit := range cases {
+		options := base
+		options.RateLimit = rateLimit
+		composition, err := compose(options)
+		if err == nil {
+			_ = composition.Query.Close()
+			t.Fatalf("expected error for %#v", rateLimit)
+		}
+	}
+}
+
 func TestBuildKeepsTraditionalPairingCapabilityAndRoute(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &config.Config{}
