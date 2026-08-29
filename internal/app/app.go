@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/httpapi"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/baselinesync"
@@ -21,7 +20,6 @@ import (
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/storage/runtime"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/provider"
 	queryDomain "github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/domain"
-	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/port"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/service"
 )
 
@@ -102,13 +100,32 @@ func Build(options Options) (*App, error) {
 			return nil, fmt.Errorf("load instance identity: %w", err)
 		}
 	}
-	dispatcher, err := provider.NewDispatcher(provider.Config{Sources: providerSources(options.Config)})
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
 	overlay := baseline.NewOverlay(runtimeRepo, baseStore)
-	query, err := service.New(overlay, dispatcher, port.NoopMetrics{}, service.Options{QueryTimeout: options.Config.Query.Timeout.Std(), DefaultSources: options.Config.Upstream.ProviderIDs})
+	spki := ""
+	if options.Config.TLS.Mode != "off" {
+		certFile, _ := options.Config.TLSFiles()
+		if pin, pinErr := security.CertificateSPKI(certFile); pinErr == nil {
+			spki = pin
+		}
+	}
+	composition, err := compose(CompositionOptions{
+		Repository:      overlay,
+		ProviderSources: providerSources(options.Config),
+		QueryOptions:    service.Options{QueryTimeout: options.Config.Query.Timeout.Std(), DefaultSources: options.Config.Upstream.ProviderIDs},
+		Token:           options.Token,
+		Version:         options.Version,
+		Commit:          options.Commit,
+		InstanceID:      options.InstanceID,
+		Capabilities:    []string{"query_v2", "spki_pairing"},
+		EnablePairing:   true,
+		PairingURL:      options.Config.TLS.PublicURL,
+		PairingSPKI:     spki,
+		RateLimit: RateLimitOptions{
+			RequestsPerSecond: options.Config.RateLimit.RequestsPerSecond,
+			Burst:             options.Config.RateLimit.Burst,
+			MaxConcurrent:     options.Config.Query.MaxConcurrent,
+		},
+	})
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -121,24 +138,12 @@ func Build(options Options) (*App, error) {
 		}
 		syncManager, err = baselinesync.NewManager(baselinesync.Options{Client: client, Store: baseStore, Metadata: runtimeRepo, ActivePath: options.Config.Storage.RuntimePath + ".baseline.db", CheckInterval: options.Config.Baseline.CheckInterval.Std(), InstanceID: options.InstanceID})
 		if err != nil {
-			_ = query.Close()
+			_ = composition.Query.Close()
 			cleanup()
 			return nil, err
 		}
 	}
-	headers := security.ServerHeaders{Version: options.Version, APIVersion: "2", InstanceID: options.InstanceID}
-	handler := &httpapi.Handler{Service: query, Headers: headers, Token: options.Token, Limiter: security.NewQueryLimiter(options.Config.RateLimit.RequestsPerSecond, options.Config.RateLimit.Burst, options.Config.Query.MaxConcurrent), BuildCommit: options.Commit, Capabilities: []string{"query_v2", "spki_pairing"}}
-	spki := ""
-	if options.Config.TLS.Mode != "off" {
-		certFile, _ := options.Config.TLSFiles()
-		if pin, pinErr := security.CertificateSPKI(certFile); pinErr == nil {
-			spki = pin
-		}
-	}
-	if _, err := handler.StartPairingSession(options.Config.TLS.PublicURL, spki, time.Now()); err != nil {
-		slog.Info("pairing page not published", "error_type", fmt.Sprintf("%T", err))
-	}
-	return &App{config: options.Config, server: &http.Server{Addr: options.Config.Server.Listen, Handler: NewRouter(handler)}, runtime: runtimeRepo, baseline: baseStore, query: query, sync: syncManager, handler: handler}, nil
+	return &App{config: options.Config, server: &http.Server{Addr: options.Config.Server.Listen, Handler: composition.Router}, runtime: runtimeRepo, baseline: baseStore, query: composition.Query, sync: syncManager, handler: composition.Handler}, nil
 }
 
 func (a *App) PairingPageURL() string {
