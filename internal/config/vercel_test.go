@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const validVercelToken = "0123456789abcdef0123456789abcdef"
+var validVercelToken = strings.Repeat("x", 32)
 
 func validVercelEnv() map[string]string {
 	return map[string]string{

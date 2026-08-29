@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const validAPIToken = "0123456789abcdef0123456789abcdef"
+var validAPIToken = strings.Repeat("x", 32)
 
 func TestCloseApplicationPreservesRunAndCloseErrors(t *testing.T) {
 	runErr := errors.New("run failed")
