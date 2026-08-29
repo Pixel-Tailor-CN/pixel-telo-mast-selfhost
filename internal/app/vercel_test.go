@@ -131,6 +131,55 @@ func TestBuildVercelRequiresConfig(t *testing.T) {
 	}
 }
 
+func TestBuildVercelRejectsShortTokenBeforeOpeningDatabase(t *testing.T) {
+	const sentinel = "sentinel-secret-password%"
+	databaseURL := "postgres://user:" + sentinel + "zz@127.0.0.1:5432/mast"
+	tests := []struct {
+		name  string
+		token []byte
+	}{
+		{name: "nil", token: nil},
+		{name: "empty", token: []byte{}},
+		{name: "31 bytes", token: bytes.Repeat([]byte("s"), 31)},
+		{name: "whitespace only", token: []byte(" \t \n")},
+		{name: "31 bytes with surrounding space", token: []byte(" " + strings.Repeat("s", 31) + " ")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			started := time.Now()
+			application, err := BuildVercel(context.Background(), &config.VercelConfig{
+				DatabaseURL: databaseURL,
+				Token:       test.token,
+				ProviderIDs: []string{"sogou"},
+			}, slog.Default(), "v", "c")
+			elapsed := time.Since(started)
+			if err == nil {
+				_ = application.Close()
+				t.Fatal("expected error")
+			}
+			if application != nil {
+				t.Fatal("application should be nil on error")
+			}
+			if elapsed > 200*time.Millisecond {
+				t.Fatalf("short token check opened database: %v", elapsed)
+			}
+			message := err.Error()
+			if strings.Contains(message, "open postgres") {
+				t.Fatalf("must reject token before opening postgres: %q", message)
+			}
+			if !strings.Contains(message, "token") || !strings.Contains(message, "32") {
+				t.Fatalf("error %q should mention token length", message)
+			}
+			if secret := strings.TrimSpace(string(test.token)); secret != "" && strings.Contains(message, secret) {
+				t.Fatalf("error leaked token: %q", message)
+			}
+			if strings.Contains(message, sentinel) || strings.Contains(message, databaseURL) {
+				t.Fatalf("error leaked database url: %q", message)
+			}
+		})
+	}
+}
+
 func TestBuildVercelRejectsInvalidDatabaseURLWithoutLeakingSecret(t *testing.T) {
 	const sentinel = "sentinel-secret-password%"
 	cfg := &config.VercelConfig{

@@ -26,7 +26,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, getenv func(string) string) error {
+func run(ctx context.Context, getenv func(string) string) (err error) {
 	if getenv == nil {
 		getenv = os.Getenv
 	}
@@ -46,7 +46,9 @@ func run(ctx context.Context, getenv func(string) string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = application.Close() }()
+	defer func() {
+		err = closeApplication(err, application.Close)
+	}()
 
 	server, err := newServer(getenv("PORT"), application.Handler)
 	if err != nil {
@@ -60,27 +62,34 @@ func run(ctx context.Context, getenv func(string) string) error {
 	}()
 
 	select {
-	case err := <-serveErr:
-		if errors.Is(err, http.ErrServerClosed) {
+	case listenErr := <-serveErr:
+		if errors.Is(listenErr, http.ErrServerClosed) {
 			return nil
 		}
-		if err != nil {
-			return fmt.Errorf("listen vercel server: %w", err)
+		if listenErr != nil {
+			return fmt.Errorf("listen vercel server: %w", listenErr)
 		}
 		return nil
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("shutdown vercel server: %w", err)
+		if shutdownErr := server.Shutdown(shutdownCtx); shutdownErr != nil {
+			return fmt.Errorf("shutdown vercel server: %w", shutdownErr)
 		}
-		err := <-serveErr
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("listen vercel server: %w", err)
+		listenErr := <-serveErr
+		if listenErr != nil && !errors.Is(listenErr, http.ErrServerClosed) {
+			return fmt.Errorf("listen vercel server: %w", listenErr)
 		}
 		slog.Info("vercel server stopped", "addr", server.Addr)
 		return nil
 	}
+}
+
+func closeApplication(runErr error, close func() error) error {
+	if close == nil {
+		return runErr
+	}
+	return errors.Join(runErr, close())
 }
 
 func newServer(port string, handler http.Handler) (*http.Server, error) {

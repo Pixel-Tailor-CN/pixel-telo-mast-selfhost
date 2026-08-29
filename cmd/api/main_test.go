@@ -2,12 +2,22 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
 )
 
 const validAPIToken = "0123456789abcdef0123456789abcdef"
+
+func TestCloseApplicationPreservesRunAndCloseErrors(t *testing.T) {
+	runErr := errors.New("run failed")
+	closeErr := errors.New("close failed")
+	got := closeApplication(runErr, func() error { return closeErr })
+	if !errors.Is(got, runErr) || !errors.Is(got, closeErr) {
+		t.Fatalf("joined error = %v", got)
+	}
+}
 
 func TestNewServerUsesPortAddress(t *testing.T) {
 	handler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})

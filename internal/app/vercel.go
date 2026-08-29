@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -31,6 +32,9 @@ func BuildVercel(ctx context.Context, cfg *config.VercelConfig, logger *slog.Log
 	if cfg == nil {
 		return nil, errors.New("vercel config is required")
 	}
+	if len(bytes.TrimSpace(cfg.Token)) < 32 {
+		return nil, errors.New("auth token must contain at least 32 bytes")
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -43,16 +47,15 @@ func BuildVercel(ctx context.Context, cfg *config.VercelConfig, logger *slog.Log
 	}
 	instanceID, err := runtimeRepo.EnsureInstanceID(initCtx)
 	if err != nil {
-		_ = runtimeRepo.Close()
-		return nil, fmt.Errorf("load instance identity: %w", err)
+		return nil, errors.Join(fmt.Errorf("load instance identity: %w", err), runtimeRepo.Close())
 	}
 	composition, err := composeVercel(cfg, runtimeRepo, logger, version, commit, instanceID)
 	if err != nil {
+		buildErr := fmt.Errorf("build vercel application: %w", err)
 		if composition != nil && composition.Query != nil {
-			_ = composition.Query.Close()
+			buildErr = errors.Join(buildErr, composition.Query.Close())
 		}
-		_ = runtimeRepo.Close()
-		return nil, fmt.Errorf("build vercel application: %w", err)
+		return nil, errors.Join(buildErr, runtimeRepo.Close())
 	}
 	return &VercelApp{Handler: composition.Router, query: composition.Query, runtime: runtimeRepo}, nil
 }
