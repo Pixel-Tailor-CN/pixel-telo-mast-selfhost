@@ -70,7 +70,8 @@ func validateDatabaseURL(databaseURL string) error {
 	}
 	parsed, err := url.Parse(databaseURL)
 	if err != nil {
-		return fmt.Errorf("parse postgres database url: %w", err)
+		// 不 wrap net/url 错误，避免畸形转义把完整 DSN 或密码带进日志。
+		return errors.New("postgres database url is invalid")
 	}
 	switch parsed.Scheme {
 	case "postgres", "postgresql":
@@ -227,7 +228,10 @@ func (r *Repository) EnsureInstanceID(ctx context.Context) (string, error) {
 	if _, err := transaction.ExecContext(ctx, `
         INSERT INTO runtime_metadata (key, value, updated_at)
         VALUES ($1, $2, $3)
-        ON CONFLICT (key) DO NOTHING`,
+        ON CONFLICT (key) DO UPDATE SET
+            value = EXCLUDED.value,
+            updated_at = EXCLUDED.updated_at
+        WHERE runtime_metadata.value ~ '^[[:space:]]*$'`,
 		"instance_id", candidate, time.Now().UTC()); err != nil {
 		return "", fmt.Errorf("persist instance identity: %w", err)
 	}

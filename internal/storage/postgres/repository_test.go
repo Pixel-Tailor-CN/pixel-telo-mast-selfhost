@@ -23,6 +23,22 @@ func TestOpenRejectsEmptyDatabaseURL(t *testing.T) {
 	}
 }
 
+func TestOpenRejectsMalformedDatabaseURLWithoutLeakingSecret(t *testing.T) {
+	const sentinel = "sentinel-secret-password%"
+	malformed := "postgres://user:" + sentinel + "zz@127.0.0.1:5432/mast_test"
+	_, err := Open(context.Background(), malformed)
+	if err == nil {
+		t.Fatal("expected error for malformed database url")
+	}
+	message := err.Error()
+	if strings.Contains(message, sentinel) {
+		t.Fatalf("error leaked sentinel password: %q", message)
+	}
+	if strings.Contains(message, malformed) {
+		t.Fatalf("error leaked database url: %q", message)
+	}
+}
+
 func TestOpenFailsOnUnreachableDatabase(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -311,6 +327,35 @@ func TestEnsureInstanceIDIsStableAcrossConcurrentCalls(t *testing.T) {
 	stored, err := repo.GetMetadata(context.Background(), "instance_id")
 	if err != nil || stored != first {
 		t.Fatalf("stored instance ID = %q/%v, want %q", stored, err, first)
+	}
+}
+
+func TestEnsureInstanceIDReplacesBlankMetadata(t *testing.T) {
+	repo := openTestRepository(t)
+	ctx := context.Background()
+	if err := repo.SetMetadata(ctx, "instance_id", " "); err != nil {
+		t.Fatal(err)
+	}
+	value, err := repo.EnsureInstanceID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(value) == "" {
+		t.Fatalf("instance ID = %q, want non-blank", value)
+	}
+	if _, parseErr := uuid.Parse(value); parseErr != nil {
+		t.Fatalf("instance ID = %q, want UUID: %v", value, parseErr)
+	}
+	stored, err := repo.GetMetadata(ctx, "instance_id")
+	if err != nil || stored != value {
+		t.Fatalf("stored instance ID = %q/%v, want %q", stored, err, value)
+	}
+	again, err := repo.EnsureInstanceID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != value {
+		t.Fatalf("instance ID after replace = %q, want %q", again, value)
 	}
 }
 
