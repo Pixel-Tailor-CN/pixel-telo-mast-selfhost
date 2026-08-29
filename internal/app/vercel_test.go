@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -15,7 +16,9 @@ import (
 	"time"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/config"
+	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/storage/postgres"
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/domain"
+	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/query/port"
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -31,8 +34,8 @@ func TestVercelRouterServesHealthInfoSourcesAndQuery(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = composition.Query.Close() })
 
-	if composition.Handler.EnablePairing {
-		t.Fatal("EnablePairing should remain false")
+	if !composition.Handler.DisablePairing {
+		t.Fatal("DisablePairing should remain true")
 	}
 	if got := composition.Handler.Capabilities; len(got) != 1 || got[0] != "query_v2" {
 		t.Fatalf("handler capabilities = %#v", got)
@@ -246,6 +249,146 @@ func TestVercelAppCloseNilIsSafe(t *testing.T) {
 	if err := application.Close(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestVercelQueryWritesProviderResultToPostgres(t *testing.T) {
+	repo, token, composition := composeVercelWithFixture(t, nil)
+	query := serve(composition.Router, http.MethodPost, "/api/v2/query", `{"number":"13800138000","sources":["sogou"]}`, true, token)
+	if query.Code != http.StatusOK {
+		t.Fatalf("query status = %d, body = %s", query.Code, query.Body.String())
+	}
+	var payload struct {
+		Phone  string `json:"phone"`
+		IsSpam bool   `json:"is_spam"`
+		Tag    string `json:"tag"`
+		Source string `json:"source"`
+	}
+	if err := json.Unmarshal(query.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Phone != "13800138000" || !payload.IsSpam || payload.Tag != "营销推广" || payload.Source != "sogou" {
+		t.Fatalf("query payload = %#v", payload)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	records, err := repo.ListByPhoneAndSources(ctx, "13800138000", []string{"sogou"})
+	if err != nil {
+		t.Fatalf("cached records: %v", err)
+	}
+	if len(records) != 1 || records[0].Tag != "营销推广" || records[0].Source != "sogou" || !records[0].IsSpam() {
+		t.Fatalf("cached records = %#v", records)
+	}
+}
+
+func TestVercelQueryReturnsProviderResultWhenPostgresUnwritable(t *testing.T) {
+	repo, token, composition := composeVercelWithFixture(t, func(context.Context, []*domain.Record) error {
+		return errors.New("postgres read-only")
+	})
+	started := time.Now()
+	query := serve(composition.Router, http.MethodPost, "/api/v2/query", `{"number":"13800138000","sources":["sogou"]}`, true, token)
+	elapsed := time.Since(started)
+	if query.Code != http.StatusOK {
+		t.Fatalf("query status = %d, body = %s", query.Code, query.Body.String())
+	}
+	if !bytes.Contains(query.Body.Bytes(), []byte(`"tag":"营销推广"`)) {
+		t.Fatalf("query body = %s", query.Body.String())
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("unwritable save extra wait %v exceeds 500ms budget", elapsed)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := repo.ListByPhoneAndSources(ctx, "13800138000", []string{"sogou"})
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("unwritable save leaked cache: %v", err)
+	}
+}
+
+func TestVercelQueryReturnsProviderResultWhenPostgresWriteBlocks(t *testing.T) {
+	_, token, composition := composeVercelWithFixture(t, func(ctx context.Context, _ []*domain.Record) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	started := time.Now()
+	query := serve(composition.Router, http.MethodPost, "/api/v2/query", `{"number":"13800138000","sources":["sogou"]}`, true, token)
+	elapsed := time.Since(started)
+	if query.Code != http.StatusOK {
+		t.Fatalf("query status = %d, body = %s", query.Code, query.Body.String())
+	}
+	if !bytes.Contains(query.Body.Bytes(), []byte(`"is_spam":true`)) || !bytes.Contains(query.Body.Bytes(), []byte(`"tag":"营销推广"`)) {
+		t.Fatalf("query body = %s", query.Body.String())
+	}
+	if elapsed < 400*time.Millisecond {
+		t.Fatalf("blocked save returned too quickly: %v", elapsed)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("blocked save extra wait %v exceeds 500ms budget", elapsed)
+	}
+}
+
+func composeVercelWithFixture(t *testing.T, save func(context.Context, []*domain.Record) error) (*postgres.Repository, []byte, *Composition) {
+	t.Helper()
+	token := bytes.Repeat([]byte("t"), 32)
+	repo, err := postgres.Open(context.Background(), vercelTestDatabaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := repo.Close(); err != nil && !errors.Is(err, sql.ErrConnDone) {
+			t.Errorf("close postgres: %v", err)
+		}
+	})
+
+	var queryRepo port.QueryRepository = repo
+	if save != nil {
+		queryRepo = saveHookRepository{QueryRepository: repo, save: save}
+	}
+	options, err := vercelCompositionOptions(&config.VercelConfig{
+		Token:       token,
+		ProviderIDs: []string{"sogou"},
+	}, queryRepo, slog.Default(), "vercel-version", "vercel-commit", "vercel-instance")
+	if err != nil {
+		t.Fatal(err)
+	}
+	options.HTTPClient = sogouSpamFixtureClient()
+	composition, err := compose(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = composition.Query.Close() })
+	return repo, token, composition
+}
+
+type saveHookRepository struct {
+	port.QueryRepository
+	save func(context.Context, []*domain.Record) error
+}
+
+func (r saveHookRepository) SaveBatch(ctx context.Context, records []*domain.Record) error {
+	if r.save != nil {
+		return r.save(ctx, records)
+	}
+	return r.QueryRepository.SaveBatch(ctx, records)
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func sogouSpamFixtureClient() *http.Client {
+	body := `<div class="result-card"><h3 vrcid="title.x"><a>营销推广-号码查询服务</a></h3><p>13800138000</p></div>`
+	return &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(bytes.NewBufferString(body)),
+			Request:    request,
+		}, nil
+	})}
 }
 
 func buildTestVercel(t *testing.T) (*VercelApp, []byte) {

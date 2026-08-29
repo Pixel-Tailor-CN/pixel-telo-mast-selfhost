@@ -20,10 +20,10 @@ type Handler struct {
 	Limiter      *security.QueryLimiter
 	BuildCommit  string
 	Capabilities []string
-	// EnablePairing 为 true 时才注册 /p/:code；传统模式必须显式设为 true。
-	EnablePairing bool
-	pairingMu     sync.Mutex
-	pairing       *pairingSession
+	// DisablePairing 为 true 时不注册 /p/:code。零值保持既有默认，继续注册配对页。
+	DisablePairing bool
+	pairingMu      sync.Mutex
+	pairing        *pairingSession
 }
 
 func (h *Handler) Register(router *gin.Engine) {
@@ -32,7 +32,7 @@ func (h *Handler) Register(router *gin.Engine) {
 	}
 	router.GET("/", h.home)
 	router.GET("/api/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
-	if h.EnablePairing {
+	if !h.DisablePairing {
 		router.GET("/p/:code", h.pairingPage)
 	}
 	authenticated := router.Group("/api", h.Headers.Middleware(), security.Bearer(h.Token))

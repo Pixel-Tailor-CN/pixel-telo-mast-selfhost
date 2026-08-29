@@ -117,7 +117,6 @@ func Build(options Options) (*App, error) {
 		Commit:          options.Commit,
 		InstanceID:      options.InstanceID,
 		Capabilities:    []string{"query_v2", "spki_pairing"},
-		EnablePairing:   true,
 		PairingURL:      options.Config.TLS.PublicURL,
 		PairingSPKI:     spki,
 		RateLimit: RateLimitOptions{

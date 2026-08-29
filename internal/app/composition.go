@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/httpapi"
@@ -22,12 +23,13 @@ type CompositionOptions struct {
 	Commit          string
 	InstanceID      string
 	Capabilities    []string
-	// EnablePairing 为 true 时注册配对页并尝试发布会话；传统模式必须显式设为 true。
-	EnablePairing bool
-	PairingURL    string
-	PairingSPKI   string
-	RateLimit     RateLimitOptions
-	Logger        *slog.Logger
+	// DisablePairing 为 true 时不注册配对页、不发布配对会话。零值保持传统默认。
+	DisablePairing bool
+	PairingURL     string
+	PairingSPKI    string
+	RateLimit      RateLimitOptions
+	Logger         *slog.Logger
+	HTTPClient     *http.Client
 }
 
 // RateLimitOptions 注入查询限流。全零表示未注入，compose 会把 Handler.Limiter 留空，
@@ -49,7 +51,7 @@ func compose(options CompositionOptions) (*Composition, error) {
 	if err != nil {
 		return nil, err
 	}
-	dispatcher, err := provider.NewDispatcher(provider.Config{Sources: options.ProviderSources})
+	dispatcher, err := provider.NewDispatcher(provider.Config{Sources: options.ProviderSources, HTTPClient: options.HTTPClient})
 	if err != nil {
 		return nil, err
 	}
@@ -58,15 +60,15 @@ func compose(options CompositionOptions) (*Composition, error) {
 		return nil, err
 	}
 	handler := &httpapi.Handler{
-		Service:       query,
-		Headers:       security.ServerHeaders{Version: options.Version, APIVersion: "2", InstanceID: options.InstanceID},
-		Token:         options.Token,
-		Limiter:       limiter,
-		BuildCommit:   options.Commit,
-		Capabilities:  options.Capabilities,
-		EnablePairing: options.EnablePairing,
+		Service:        query,
+		Headers:        security.ServerHeaders{Version: options.Version, APIVersion: "2", InstanceID: options.InstanceID},
+		Token:          options.Token,
+		Limiter:        limiter,
+		BuildCommit:    options.Commit,
+		Capabilities:   options.Capabilities,
+		DisablePairing: options.DisablePairing,
 	}
-	if options.EnablePairing {
+	if !options.DisablePairing {
 		if _, err := handler.StartPairingSession(options.PairingURL, options.PairingSPKI, time.Now()); err != nil {
 			logger := slog.Default()
 			if options.Logger != nil {

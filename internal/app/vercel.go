@@ -58,14 +58,22 @@ func BuildVercel(ctx context.Context, cfg *config.VercelConfig, logger *slog.Log
 }
 
 func composeVercel(cfg *config.VercelConfig, repo port.QueryRepository, logger *slog.Logger, version, commit, instanceID string) (*Composition, error) {
+	options, err := vercelCompositionOptions(cfg, repo, logger, version, commit, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	return compose(options)
+}
+
+func vercelCompositionOptions(cfg *config.VercelConfig, repo port.QueryRepository, logger *slog.Logger, version, commit, instanceID string) (CompositionOptions, error) {
 	if cfg == nil {
-		return nil, errors.New("vercel config is required")
+		return CompositionOptions{}, errors.New("vercel config is required")
 	}
 	sources := make([]provider.SourceConfig, 0, len(cfg.ProviderIDs))
 	for _, id := range cfg.ProviderIDs {
 		sources = append(sources, provider.SourceConfig{ID: id})
 	}
-	return compose(CompositionOptions{
+	return CompositionOptions{
 		Repository:      repo,
 		ProviderSources: sources,
 		QueryOptions: service.Options{
@@ -74,19 +82,19 @@ func composeVercel(cfg *config.VercelConfig, repo port.QueryRepository, logger *
 			DefaultSources: cfg.ProviderIDs,
 			CacheWriteMode: service.CacheWriteSync,
 		},
-		Token:         cfg.Token,
-		Version:       version,
-		Commit:        commit,
-		InstanceID:    instanceID,
-		Capabilities:  []string{"query_v2"},
-		EnablePairing: false,
+		Token:          cfg.Token,
+		Version:        version,
+		Commit:         commit,
+		InstanceID:     instanceID,
+		Capabilities:   []string{"query_v2"},
+		DisablePairing: true,
 		RateLimit: RateLimitOptions{
 			RequestsPerSecond: 1,
 			Burst:             5,
 			MaxConcurrent:     4,
 		},
 		Logger: logger,
-	})
+	}, nil
 }
 
 // Close 按逆序关闭 Query Service 和 PostgreSQL 连接池，可重复调用。

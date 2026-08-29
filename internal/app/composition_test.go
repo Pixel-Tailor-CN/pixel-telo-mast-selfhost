@@ -40,7 +40,7 @@ func TestComposeRegistersSharedRoutesWithoutPairing(t *testing.T) {
 		Commit:          "compose-commit",
 		InstanceID:      "compose-instance",
 		Capabilities:    []string{"query_v2"},
-		EnablePairing:   false,
+		DisablePairing:  true,
 		RateLimit:       RateLimitOptions{RequestsPerSecond: 1, Burst: 1, MaxConcurrent: 1},
 	})
 	if err != nil {
@@ -48,8 +48,8 @@ func TestComposeRegistersSharedRoutesWithoutPairing(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = composition.Query.Close() })
 
-	if composition.Handler.EnablePairing {
-		t.Fatal("EnablePairing should remain false")
+	if !composition.Handler.DisablePairing {
+		t.Fatal("DisablePairing should remain true")
 	}
 
 	seen := routeSet(composition.Router)
@@ -104,7 +104,6 @@ func TestComposeUsesDefaultLimiterWhenRateLimitUnset(t *testing.T) {
 		Commit:          "compose-commit",
 		InstanceID:      "compose-instance",
 		Capabilities:    []string{"query_v2"},
-		EnablePairing:   false,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -175,8 +174,8 @@ func TestBuildKeepsTraditionalPairingCapabilityAndRoute(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = application.Close(context.Background()) })
 
-	if !application.handler.EnablePairing {
-		t.Fatal("traditional handler must enable pairing explicitly")
+	if application.handler.DisablePairing {
+		t.Fatal("traditional handler must keep pairing enabled by default")
 	}
 	if got := application.handler.Capabilities; len(got) != 2 || got[0] != "query_v2" || got[1] != "spki_pairing" {
 		t.Fatalf("capabilities = %#v", got)

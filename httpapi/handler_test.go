@@ -38,7 +38,7 @@ func testHandler(t *testing.T) *Handler {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = svc.Close() })
-	return &Handler{Service: svc, Token: bytes.Repeat([]byte("t"), 32), Headers: security.ServerHeaders{Version: "1.0.0", APIVersion: "2", InstanceID: "test"}, EnablePairing: true}
+	return &Handler{Service: svc, Token: bytes.Repeat([]byte("t"), 32), Headers: security.ServerHeaders{Version: "1.0.0", APIVersion: "2", InstanceID: "test"}}
 }
 
 func TestSelfHostRouteSetExcludesFeedbackAndMetrics(t *testing.T) {
@@ -63,17 +63,28 @@ func TestSelfHostRouteSetExcludesFeedbackAndMetrics(t *testing.T) {
 	}
 }
 
+func TestRegisterKeepsPairingRouteOnZeroValue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := testHandler(t)
+	if handler.DisablePairing {
+		t.Fatal("zero-value Handler must keep pairing enabled")
+	}
+	handler.Register(router)
+	if !routerHasPairingRoute(router) {
+		t.Fatal("zero-value Handler dropped pairing route")
+	}
+}
+
 func TestRegisterOmitsPairingRouteWhenDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	handler := testHandler(t)
-	handler.EnablePairing = false
+	handler.DisablePairing = true
 	handler.Register(router)
 
-	for _, route := range router.Routes() {
-		if route.Method+" "+route.Path == "GET /p/:code" {
-			t.Fatal("pairing route registered")
-		}
+	if routerHasPairingRoute(router) {
+		t.Fatal("pairing route registered")
 	}
 	request := httptest.NewRequest(http.MethodGet, "/p/code", nil)
 	recorder := httptest.NewRecorder()
@@ -202,4 +213,13 @@ func TestQueryV2ReturnsNullForMissingPhoneData(t *testing.T) {
 	if !exists || data != nil {
 		t.Fatalf("data = %#v, body = %s", data, recorder.Body.String())
 	}
+}
+
+func routerHasPairingRoute(router *gin.Engine) bool {
+	for _, route := range router.Routes() {
+		if route.Method+" "+route.Path == "GET /p/:code" {
+			return true
+		}
+	}
+	return false
 }
