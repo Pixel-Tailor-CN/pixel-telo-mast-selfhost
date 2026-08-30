@@ -588,8 +588,6 @@ Vercel Deploy Button 会把源仓库复制为独立仓库，不会保留 GitHub 
 6. 生成并填写 `MAST_TOKEN`，再主动填写 `MAST_PROVIDER_IDS`。
 7. 确认 Framework Preset 为 **Go**，然后创建 deployment。
 
-如果旧版 README 或历史文档中仍有 Deploy Button，不要用它代替第 2、3 步。静态按钮无法动态识别当前 Fork 所属账号，仍会从官方仓库创建另一个独立副本。
-
 环境变量要求：
 
 - `MAST_TOKEN` 去空白后必须至少 32 字节，不提供默认值。

@@ -144,7 +144,7 @@ Windows 防火墙如果询问，允许专用网络访问。手机必须能访问
 部署步骤：
 
 1. 打开 [Fork 页面](https://github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/fork)，把仓库 Fork 到自己的 GitHub 账号。
-2. 登录 Vercel，选择 **Add New → Project**，在 **Import Git Repository** 中导入刚创建的 Fork。如果旧版 README 仍显示 Deploy Button，不要使用它；静态按钮会再次复制官方仓库，无法保留 Fork 关系。
+2. 登录 Vercel，选择 **Add New → Project**，在 **Import Git Repository** 中导入刚创建的 Fork。
 3. 在项目中通过 Marketplace 安装 Neon。提交前确认套餐明确显示 **Free**，不要选择付费套餐；Neon 会向项目提供 `DATABASE_URL`。
 4. 填写 `MAST_TOKEN`，可先在本机运行 `openssl rand -hex 32` 生成。
 5. 明确填写 `MAST_PROVIDER_IDS`，例如 `sogou` 或 `sogou,360`；没有默认 Provider，启用前请自行确认网页服务条款。
