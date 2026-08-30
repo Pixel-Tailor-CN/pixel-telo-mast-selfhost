@@ -144,14 +144,11 @@ Windows 防火墙如果询问，允许专用网络访问。手机必须能访问
 部署步骤：
 
 1. 打开 [Fork 页面](https://github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/fork)，把仓库 Fork 到自己的 GitHub 账号。
-2. 登录 Vercel，选择 **Add New → Project**，在 **Import Git Repository** 中导入刚创建的 Fork。
-3. 在项目中通过 Marketplace 安装 Neon。提交前确认套餐明确显示 **Free**，不要选择付费套餐；Neon 会向项目提供 `DATABASE_URL`。
-4. 填写 `MAST_TOKEN`，可先在本机运行 `openssl rand -hex 32` 生成。
-5. 明确填写 `MAST_PROVIDER_IDS`，例如 `sogou` 或 `sogou,360`；没有默认 Provider，启用前请自行确认网页服务条款。
-6. 确认 Framework Preset 为 **Go**，然后部署。
-7. 部署成功后，把 Vercel 的 HTTPS 根地址和同一个 `MAST_TOKEN` 手工填入 Pixel Telo。
+2. 在 Vercel 选择 **Add New → Project**，导入刚创建的 Fork；只需填写 `MAST_TOKEN` 和 `MAST_PROVIDER_IDS`，然后部署。Token 可用 `openssl rand -hex 32` 生成；Provider 可填写 `sogou`、`360` 或 `sogou,360`，启用前请自行确认网页服务条款。
+3. 第一次部署后服务还不能使用：Vercel 可能显示 deployment 已完成，但应用缺少数据库。打开 [Neon Marketplace](https://vercel.com/marketplace/neon)，点击 **Install**，连接刚创建的项目并选择 **Free** 套餐。
+4. 返回 Vercel 的 **Deployments** 页面，对刚才的 deployment 点击 **Redeploy**。Neon 会自动提供 `DATABASE_URL`；Go Framework、数据库 migration、版本和 Commit 也会自动处理。部署成功后，把 HTTPS 根地址和同一个 `MAST_TOKEN` 手工填入 Pixel Telo。
 
-以后升级时，打开自己 Fork 的 GitHub 页面，点击 **Sync fork → Update branch**。默认分支更新后，Vercel 会自动构建并部署新版本；原项目的环境变量和 Neon 数据库会继续使用。
+以后升级时，打开自己 Fork 的 GitHub 页面，点击 **Sync fork → Update branch**。Vercel 会自动部署新版本，并继续使用原来的环境变量和 Neon 数据库。
 
 Vercel 模式和家里的 Docker / 二进制**不是同一套能力**：
 

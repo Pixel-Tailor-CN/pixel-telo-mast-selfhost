@@ -578,35 +578,22 @@ Vercel 模式使用独立入口 `cmd/api` 和 `internal/app.BuildVercel`，不�
 
 ### 17.1 Fork 后导入 Vercel（推荐）
 
-Vercel Deploy Button 会把源仓库复制为独立仓库，不会保留 GitHub Fork 关系。长期运行的实例推荐使用以下流程：
+Vercel Deploy Button 会把源仓库复制为独立仓库，不会保留 GitHub Fork 关系。长期运行的实例推荐使用以下四步：
 
 1. 打开 <https://github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/fork>，把官方仓库 Fork 到自己的 GitHub 账号。
-2. 在 Vercel 选择 **Add New → Project**。
-3. 在 **Import Git Repository** 中选择刚创建的 Fork。若未显示，先检查 Vercel GitHub App 是否有权访问该仓库。
-4. 在项目中通过 Marketplace 安装 Neon，并确认套餐明确显示 **Free**；本文不要求也不建议开通付费套餐。
-5. 确认 Neon 已为当前项目提供 `DATABASE_URL`。
-6. 生成并填写 `MAST_TOKEN`，再主动填写 `MAST_PROVIDER_IDS`。
-7. 确认 Framework Preset 为 **Go**，然后创建 deployment。
+2. 在 Vercel 选择 **Add New → Project**，导入刚创建的 Fork。只填写 `MAST_TOKEN` 和 `MAST_PROVIDER_IDS`，然后部署。若仓库未显示，检查 Vercel GitHub App 是否有权访问该 Fork。
+3. 第一次部署后服务还不能使用。Vercel 可能显示 deployment 已完成，但应用缺少 `DATABASE_URL`。打开 <https://vercel.com/marketplace/neon>，点击 **Install**，连接该 Vercel 项目并选择 **Free** 套餐。
+4. 回到项目的 **Deployments** 页面，对刚才的 deployment 点击 **Redeploy**。
 
-环境变量要求：
+Neon 会自动注入 `DATABASE_URL`，仓库配置会自动选择 Go Framework，应用会自动执行 migration，构建脚本会自动注入版本和 Commit。用户只需要手工提供：
 
-- `MAST_TOKEN` 去空白后必须至少 32 字节，不提供默认值。
-- `MAST_PROVIDER_IDS` 必须由部署者填写 `sogou`、`360` 或 `sogou,360`，没有默认值或预选项；启用前请自行确认第三方条款。
-- Neon 通常自动提供 `DATABASE_URL`。如果项目中没有该变量，先确认 Neon 是否连接到了正确的 Vercel 项目，不要复制其他环境的数据库凭据。
-- Preview deployment 可能启用 Deployment Protection。Pixel Telo 无法完成 Vercel 登录，因此实际接入时应使用可公开访问的 HTTPS deployment，或按 Vercel 安全策略为目标 deployment 配置适合客户端的访问方式。
+- `MAST_TOKEN`：去空白后至少 32 字节，可用 `openssl rand -hex 32` 生成。
+- `MAST_PROVIDER_IDS`：填写 `sogou`、`360` 或 `sogou,360`；启用前请自行确认第三方条款。
+- Neon 套餐：必须确认显示 **Free**，本文不要求也不建议开通付费套餐。
 
-部署完成后，到 Vercel Project Settings 检查：
+不要在截图、终端记录或工单中展示环境变量值。Preview deployment 可能启用 Deployment Protection，Pixel Telo 无法完成 Vercel 登录；实际接入应使用可公开访问的 HTTPS deployment，或按 Vercel 安全策略配置适合客户端的访问方式。
 
-```text
-Framework Preset: Go
-DATABASE_URL: 已设置
-MAST_TOKEN: 已设置且为 Secret
-MAST_PROVIDER_IDS: 已设置
-```
-
-不要在截图、终端记录或工单中展示变量值。
-
-升级时，在自己 Fork 的 GitHub 页面点击 **Sync fork → Update branch**。默认分支更新后，Vercel 会自动创建新 deployment；现有环境变量和 Neon 数据库不会因此重建。若 GitHub 报告存在冲突，应先人工检查自己的修改，不要强制覆盖数据库凭据或部署配置。
+升级时，在自己 Fork 的 GitHub 页面点击 **Sync fork → Update branch**。Vercel 会自动部署新版本，并继续使用现有环境变量和 Neon 数据库。若 GitHub 报告存在冲突，应先人工检查自己的修改，不要强制覆盖部署配置。
 
 ### 17.2 其他手工部署方式
 
