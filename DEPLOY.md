@@ -576,25 +576,25 @@ Vercel 模式使用独立入口 `cmd/api` 和 `internal/app.BuildVercel`，不�
 
 构建脚本优先使用 `VERCEL_GIT_COMMIT_SHA`，补全当前仓库历史并读取官方仓库的 Release tags，然后通过 ldflags 注入版本和完整 Commit。提交正好位于 `v0.2.0` 时版本为 `0.2.0`；位于该 Tag 之后时为 `0.2.0-dev+<短 Commit>`；无法找到可追溯 Release 时为 `dev+<短 Commit>`。版本解析或 Tag 获取不发生在运行时，不会增加冷启动外部依赖。
 
-### 17.1 一键部署（推荐）
+### 17.1 Fork 后导入 Vercel（推荐）
 
-[![Deploy with Vercel](https://vercel.com/button)][vercel-deploy-button]
+Vercel Deploy Button 会把源仓库复制为独立仓库，不会保留 GitHub Fork 关系。长期运行的实例推荐使用以下流程：
 
-按钮使用 Vercel 官方 Project Creation Flow，执行以下工作：
+1. 打开 <https://github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/fork>，把官方仓库 Fork 到自己的 GitHub 账号。
+2. 在 Vercel 选择 **Add New → Project**。
+3. 在 **Import Git Repository** 中选择刚创建的 Fork。若未显示，先检查 Vercel GitHub App 是否有权访问该仓库。
+4. 在项目中通过 Marketplace 安装 Neon，并确认套餐明确显示 **Free**；本文不要求也不建议开通付费套餐。
+5. 确认 Neon 已为当前项目提供 `DATABASE_URL`。
+6. 生成并填写 `MAST_TOKEN`，再主动填写 `MAST_PROVIDER_IDS`。
+7. 确认 Framework Preset 为 **Go**，然后创建 deployment。
 
-1. 把本仓库克隆到部署者自己的 GitHub、GitLab 或 Bitbucket。
-2. 创建 Vercel 项目，并读取仓库中的 Go Framework 配置。
-3. 要求安装 Neon Marketplace 产品，为项目注入 `DATABASE_URL`。
-4. 要求部署者填写 `MAST_TOKEN` 和 `MAST_PROVIDER_IDS`。
-5. 解析当前 Git tag/commit，通过 ldflags 注入部署版本并构建 `cmd/api/main.go`。
+如果旧版 README 或历史文档中仍有 Deploy Button，不要用它代替第 2、3 步。静态按钮无法动态识别当前 Fork 所属账号，仍会从官方仓库创建另一个独立副本。
 
-确认页面时必须注意：
+环境变量要求：
 
-- Neon 套餐应明确显示 **Free**；本文不要求也不建议开通付费套餐。
-- `MAST_TOKEN` 不提供默认值，去空白后必须至少 32 字节。
-- `MAST_PROVIDER_IDS` 不提供默认值或预选项。必须由部署者主动填写 `sogou`、`360` 或 `sogou,360`，并自行确认第三方条款。
-- Neon 应自动提供 `DATABASE_URL`。如果部署页面仍要求手工填写，先确认 Neon 已成功连接到当前项目，不要随意复制其他环境的数据库凭据。
-- Project Creation Flow 的首次部署通常会成为 Production deployment。若只想测试 Preview，应在项目创建后再从分支或 CLI 创建 Preview deployment。
+- `MAST_TOKEN` 去空白后必须至少 32 字节，不提供默认值。
+- `MAST_PROVIDER_IDS` 必须由部署者填写 `sogou`、`360` 或 `sogou,360`，没有默认值或预选项；启用前请自行确认第三方条款。
+- Neon 通常自动提供 `DATABASE_URL`。如果项目中没有该变量，先确认 Neon 是否连接到了正确的 Vercel 项目，不要复制其他环境的数据库凭据。
 - Preview deployment 可能启用 Deployment Protection。Pixel Telo 无法完成 Vercel 登录，因此实际接入时应使用可公开访问的 HTTPS deployment，或按 Vercel 安全策略为目标 deployment 配置适合客户端的访问方式。
 
 部署完成后，到 Vercel Project Settings 检查：
@@ -608,9 +608,11 @@ MAST_PROVIDER_IDS: 已设置
 
 不要在截图、终端记录或工单中展示变量值。
 
-### 17.2 手工部署
+升级时，在自己 Fork 的 GitHub 页面点击 **Sync fork → Update branch**。默认分支更新后，Vercel 会自动创建新 deployment；现有环境变量和 Neon 数据库不会因此重建。若 GitHub 报告存在冲突，应先人工检查自己的修改，不要强制覆盖数据库凭据或部署配置。
 
-不使用按钮时，可以手工导入仓库并创建或连接任意 PostgreSQL。项目必须选择 Go Framework Preset，并设置下一节列出的三个变量。Neon 只是推荐路径，不是运行时依赖；应用只要求兼容 PostgreSQL 的 `DATABASE_URL`。
+### 17.2 其他手工部署方式
+
+也可以导入独立复制的仓库，或创建、连接任意 PostgreSQL。项目必须选择 Go Framework Preset，并设置下一节列出的三个变量。Neon 只是推荐路径，不是运行时依赖；应用只要求兼容 PostgreSQL 的 `DATABASE_URL`。独立仓库不会显示 GitHub 的 **Sync fork**，升级时需要手工添加上游 remote 并合并官方 `main`。
 
 ### 17.3 必填环境变量
 
@@ -682,5 +684,3 @@ Vercel 可以水平扩容。Token Bucket、查询并发、Provider semaphore、�
 - 不要指望失败查询自动回退到官方 Mast。
 - 不要把 Vercel 临时文件系统当成 Runtime。
 - 不要为了「和家里一样」去打开 pairing 或 baseline；当前代码路径未提供这两项。
-
-[vercel-deploy-button]: https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FPixel-Tailor-CN%2Fpixel-telo-mast-selfhost&env=MAST_TOKEN,MAST_PROVIDER_IDS&envDescription=%E9%9C%80%E8%A6%81%E8%87%B3%E5%B0%91%2032%20%E5%AD%97%E8%8A%82%E7%9A%84%20MAST_TOKEN%EF%BC%8C%E5%B9%B6%E6%98%8E%E7%A1%AE%E5%A1%AB%E5%86%99%20sogou%E3%80%81360%20%E6%88%96%20sogou%2C360%E3%80%82Neon%20%E4%BC%9A%E6%8F%90%E4%BE%9B%20DATABASE_URL%E3%80%82&project-name=pixel-telo-mast-selfhost&repository-name=pixel-telo-mast-selfhost&products=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22neon%22%2C%22productSlug%22%3A%22neon%22%2C%22protocol%22%3A%22storage%22%7D%5D

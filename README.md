@@ -9,7 +9,7 @@
 | 你想做什么 | 看哪里 |
 | --- | --- |
 | 不想懂原理，先在家里跑起来 | 下面的「快速开始」 |
-| 部署到 Vercel（自己准备 PostgreSQL） | 下面的「部署到 Vercel」 |
+| Fork 后部署到 Vercel（推荐长期使用） | 下面的「部署到 Vercel」 |
 | 域名证书、反代、限流、备份升级、Vercel 限制 | [`DEPLOY.md`](DEPLOY.md) |
 
 快速开始使用镜像标签 `latest`。需要钉死版本时，请到 [Releases](https://github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/releases) 选完整版本号。
@@ -139,17 +139,19 @@ Windows 防火墙如果询问，允许专用网络访问。手机必须能访问
 
 ## 部署到 Vercel
 
-适合不想在家里长期开电脑的人。一键部署流程会引导创建 Vercel 项目和 Neon PostgreSQL，并要求你亲自填写 Token 和 Provider。这不是官方查询代理，失败时也**不会**把号码转到 Pixel Telo 官方实时查询。
+适合不想在家里长期开电脑的人。推荐先 Fork 官方仓库，再把自己的 Fork 导入 Vercel。这样 GitHub 会保留 Fork 关系，以后可以直接同步上游并触发自动升级。这不是官方查询代理，失败时也**不会**把号码转到 Pixel Telo 官方实时查询。
 
-[![Deploy with Vercel](https://vercel.com/button)][vercel-deploy-button]
+部署步骤：
 
-一键部署步骤：
+1. 打开 [Fork 页面](https://github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/fork)，把仓库 Fork 到自己的 GitHub 账号。
+2. 登录 Vercel，选择 **Add New → Project**，在 **Import Git Repository** 中导入刚创建的 Fork。如果旧版 README 仍显示 Deploy Button，不要使用它；静态按钮会再次复制官方仓库，无法保留 Fork 关系。
+3. 在项目中通过 Marketplace 安装 Neon。提交前确认套餐明确显示 **Free**，不要选择付费套餐；Neon 会向项目提供 `DATABASE_URL`。
+4. 填写 `MAST_TOKEN`，可先在本机运行 `openssl rand -hex 32` 生成。
+5. 明确填写 `MAST_PROVIDER_IDS`，例如 `sogou` 或 `sogou,360`；没有默认 Provider，启用前请自行确认网页服务条款。
+6. 确认 Framework Preset 为 **Go**，然后部署。
+7. 部署成功后，把 Vercel 的 HTTPS 根地址和同一个 `MAST_TOKEN` 手工填入 Pixel Telo。
 
-1. 点击按钮，把仓库克隆到自己的 Git 提供商并创建 Vercel 项目。
-2. 按提示安装 Neon；提交前确认套餐显示 **Free**，不要选择付费套餐。
-3. 填写 `MAST_TOKEN`，可先在本机运行 `openssl rand -hex 32` 生成。
-4. 明确填写 `MAST_PROVIDER_IDS`，例如 `sogou` 或 `sogou,360`；按钮不会预填 Provider。
-5. 部署成功后，把 Vercel 的 HTTPS 根地址和同一个 `MAST_TOKEN` 手工填入 Pixel Telo。
+以后升级时，打开自己 Fork 的 GitHub 页面，点击 **Sync fork → Update branch**。默认分支更新后，Vercel 会自动构建并部署新版本；原项目的环境变量和 Neon 数据库会继续使用。
 
 Vercel 模式和家里的 Docker / 二进制**不是同一套能力**：
 
@@ -168,9 +170,7 @@ Vercel 模式和家里的 Docker / 二进制**不是同一套能力**：
 
 可用 `openssl rand -hex 32` 生成 Token。当前可填写的来源仍是 `sogou` 和 `360`。
 
-仓库根目录的 [`vercel.json`](vercel.json) 明确选择 Go Framework Preset，且不包含路径 rewrite。构建脚本会把当前 Git commit 和最近可追溯的 Release tag 注入 `cmd/api`：正式 Tag 显示如 `0.2.0`，Tag 后的提交显示如 `0.2.0-dev+e9fcfc8`。更完整的一键部署、手工部署、免费层检查、变量说明和排错见 [`DEPLOY.md`](DEPLOY.md)。
-
-[vercel-deploy-button]: https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FPixel-Tailor-CN%2Fpixel-telo-mast-selfhost&env=MAST_TOKEN,MAST_PROVIDER_IDS&envDescription=%E9%9C%80%E8%A6%81%E8%87%B3%E5%B0%91%2032%20%E5%AD%97%E8%8A%82%E7%9A%84%20MAST_TOKEN%EF%BC%8C%E5%B9%B6%E6%98%8E%E7%A1%AE%E5%A1%AB%E5%86%99%20sogou%E3%80%81360%20%E6%88%96%20sogou%2C360%E3%80%82Neon%20%E4%BC%9A%E6%8F%90%E4%BE%9B%20DATABASE_URL%E3%80%82&project-name=pixel-telo-mast-selfhost&repository-name=pixel-telo-mast-selfhost&products=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22neon%22%2C%22productSlug%22%3A%22neon%22%2C%22protocol%22%3A%22storage%22%7D%5D
+仓库根目录的 [`vercel.json`](vercel.json) 明确选择 Go Framework Preset，且不包含路径 rewrite。构建脚本会把当前 Git commit 和最近可追溯的 Release tag 注入 `cmd/api`：正式 Tag 显示如 `0.2.0`，Tag 后的提交显示如 `0.2.0-dev+e9fcfc8`。更完整的 Fork 导入、手工部署、免费层检查、变量说明和排错见 [`DEPLOY.md`](DEPLOY.md)。
 
 ## 走不通时先看这里
 
