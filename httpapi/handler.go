@@ -54,9 +54,9 @@ func (h *Handler) Register(router *gin.Engine) {
 func appFacingVersion(version string) string {
 	matches := appFacingVersionRegexp.FindStringSubmatch(strings.TrimSpace(version))
 	if len(matches) != 2 {
-		return "v0.0.0"
+		return "0.0.0"
 	}
-	return "v" + matches[1]
+	return matches[1]
 }
 
 func (h *Handler) info(c *gin.Context) {

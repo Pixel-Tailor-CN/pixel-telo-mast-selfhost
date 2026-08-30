@@ -78,24 +78,24 @@ func TestAppFacingVersionIsStrictSemverWhileHomeKeepsBuildVersion(t *testing.T) 
 	if err := json.Unmarshal(infoRecorder.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Version != "v0.2.1" {
+	if payload.Version != "0.2.1" {
 		t.Fatalf("info version = %q", payload.Version)
 	}
-	if got := infoRecorder.Header().Get("X-Pixel-Telo-Server-Version"); got != "v0.2.1" {
+	if got := infoRecorder.Header().Get("X-Pixel-Telo-Server-Version"); got != "0.2.1" {
 		t.Fatalf("server version header = %q", got)
 	}
 }
 
 func TestAppFacingVersionNormalization(t *testing.T) {
 	tests := map[string]string{
-		"1.2.3":             "v1.2.3",
-		"v1.2.3":            "v1.2.3",
-		"1.2.3-dev+abcdef0": "v1.2.3",
-		"v1.2.3+build":      "v1.2.3",
-		"dev+abcdef0":       "v0.0.0",
-		"unknown":           "v0.0.0",
-		"1.2":               "v0.0.0",
-		"01.2.3":            "v0.0.0",
+		"1.2.3":             "1.2.3",
+		"v1.2.3":            "1.2.3",
+		"1.2.3-dev+abcdef0": "1.2.3",
+		"v1.2.3+build":      "1.2.3",
+		"dev+abcdef0":       "0.0.0",
+		"unknown":           "0.0.0",
+		"1.2":               "0.0.0",
+		"01.2.3":            "0.0.0",
 	}
 	for input, want := range tests {
 		t.Run(input, func(t *testing.T) {
