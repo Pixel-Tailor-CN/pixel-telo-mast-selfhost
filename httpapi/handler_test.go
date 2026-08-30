@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/security"
@@ -29,6 +32,12 @@ type testDispatcher struct{}
 
 func (testDispatcher) LookupAll(context.Context, string, []string) (map[string]*port.ProviderResult, map[string]error) {
 	return map[string]*port.ProviderResult{"sogou": {Source: "sogou", IsSpam: true, Tag: "营销"}}, nil
+}
+
+type errorDispatcher struct{ err error }
+
+func (d errorDispatcher) LookupAll(context.Context, string, []string) (map[string]*port.ProviderResult, map[string]error) {
+	return nil, map[string]error{"sogou": d.err}
 }
 
 func testHandler(t *testing.T) *Handler {
@@ -135,6 +144,41 @@ func TestV1QueryRouteIsNotRegistered(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestQueryV2LogsSafeFinalFailure(t *testing.T) {
+	const phone = "13800138000"
+	const privateDetail = "private upstream response"
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	svc, err := service.New(testRepository{}, errorDispatcher{err: errors.New(privateDetail)}, nil, service.Options{DefaultSources: []string{"sogou"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+	handler := &Handler{Service: svc, Token: bytes.Repeat([]byte("t"), 32), Logger: logger}
+	router := gin.New()
+	handler.Register(router)
+	request := httptest.NewRequest(http.MethodPost, "/api/v2/query", bytes.NewBufferString(`{"number":"`+phone+`","sources":["sogou"]}`))
+	request.Header.Set("Authorization", "Bearer "+string(handler.Token))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	requestID := recorder.Header().Get("X-Request-ID")
+	message := logs.String()
+	for _, expected := range []string{`"msg":"query failed"`, `"status":503`, `"error_type":"upstream_unavailable"`, requestID} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("log %q does not contain %q", message, expected)
+		}
+	}
+	for _, sensitive := range []string{phone, privateDetail, string(handler.Token)} {
+		if strings.Contains(message, sensitive) {
+			t.Fatalf("log contains sensitive value %q: %s", sensitive, message)
+		}
 	}
 }
 

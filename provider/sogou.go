@@ -53,7 +53,7 @@ func (p *sogouProvider) Lookup(ctx context.Context, phone string) (*port.Provide
 
 	label, err := parseSogouCard(body, phone)
 	if err != nil {
-		return nil, err
+		return nil, invalidProviderResponse(err)
 	}
 	return &port.ProviderResult{
 		IsSpam: label != "",

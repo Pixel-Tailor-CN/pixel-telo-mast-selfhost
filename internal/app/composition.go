@@ -66,6 +66,7 @@ func compose(options CompositionOptions) (*Composition, error) {
 		Limiter:        limiter,
 		BuildCommit:    options.Commit,
 		Capabilities:   options.Capabilities,
+		Logger:         options.Logger,
 		DisablePairing: options.DisablePairing,
 	}
 	if !options.DisablePairing {

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"log/slog"
 	"net/http"
 	"sync"
 
@@ -20,6 +21,7 @@ type Handler struct {
 	Limiter      *security.QueryLimiter
 	BuildCommit  string
 	Capabilities []string
+	Logger       *slog.Logger
 	// DisablePairing 为 true 时不注册 /p/:code。零值保持既有默认，继续注册配对页。
 	DisablePairing bool
 	pairingMu      sync.Mutex
@@ -69,14 +71,25 @@ func (h *Handler) queryV2(c *gin.Context) {
 
 func (h *Handler) writeServiceError(c *gin.Context, err error) {
 	status, code := errorStatus(err)
-	h.writeError(c, status, code)
+	requestID := ensureRequestID(c)
+	logger := h.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Error("query failed", "status", status, "error_type", code, "request_id", requestID)
+	c.JSON(status, gin.H{"error": code, "code": code, "request_id": requestID})
 }
 
 func (h *Handler) writeError(c *gin.Context, status int, code string) {
+	requestID := ensureRequestID(c)
+	c.JSON(status, gin.H{"error": code, "code": code, "request_id": requestID})
+}
+
+func ensureRequestID(c *gin.Context) string {
 	requestID := c.Writer.Header().Get("X-Request-ID")
 	if _, err := uuid.Parse(requestID); err != nil {
 		requestID = uuid.NewString()
 	}
 	c.Header("X-Request-ID", requestID)
-	c.JSON(status, gin.H{"error": code, "code": code, "request_id": requestID})
+	return requestID
 }

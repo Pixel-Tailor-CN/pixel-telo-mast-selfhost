@@ -438,7 +438,7 @@ curl -k --fail --show-error \
 - 直接 TLS 模式只开放实际 HTTPS 监听端口。
 - 前置 TLS 模式只允许可信入口访问后端 HTTP 端口。
 - 限制数据目录权限，特别是 Token 和私钥。
-- 内置访问日志只记录方法、路由模板、状态码、耗时和 Request ID，不记录完整 URL、Header 或请求体。
+- 内置访问日志只记录方法、路由模板、状态码、耗时和 Request ID；Provider 诊断日志只记录 source、错误分类和耗时。两者均不记录完整 URL、Header、请求体、号码或上游响应正文。
 - 不把 Token、私钥、数据库或证书提交到 Git。
 - 不提供反馈、管理、离线生成、清理或 `/metrics` 路由。
 - 不配置到官方 Mast 实时查询接口的失败回退。
@@ -547,6 +547,8 @@ docker start mast-selfhost
 
 - 503：Provider 不可用、解析失败或没有可靠结果。
 - 504：查询超过总超时。
+
+检查同一 Request ID 附近的结构化日志：`provider query failed` 会给出 `provider`、`error_type` 和 `latency_ms`；`query failed` 会给出最终 HTTP 状态和错误分类。日志不会包含完整号码或上游响应正文。`error_type` 可能为 `rate_limited`、`timeout`、`upstream_unavailable`、`parse_error` 或 `canceled`。
 
 失败时不得自动把号码发送到官方 Mast 实时查询接口。
 

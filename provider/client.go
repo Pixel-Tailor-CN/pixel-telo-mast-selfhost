@@ -16,6 +16,12 @@ import (
 
 const maxResponseBytes = 256 * 1024
 
+var errInvalidProviderResponse = errors.New("invalid provider response")
+
+func invalidProviderResponse(err error) error {
+	return fmt.Errorf("%w: %w", errInvalidProviderResponse, err)
+}
+
 func newHTTPClient() *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{

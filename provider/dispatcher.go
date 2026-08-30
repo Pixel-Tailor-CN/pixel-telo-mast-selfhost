@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -160,7 +161,17 @@ func newSourceRuntime(config SourceConfig, provider lookupProvider, metrics port
 	}
 }
 
-func (r *sourceRuntime) lookup(ctx context.Context, phone string) (*port.ProviderResult, error) {
+func (r *sourceRuntime) lookup(ctx context.Context, phone string) (_ *port.ProviderResult, resultErr error) {
+	lookupStartedAt := time.Now()
+	defer func() {
+		if resultErr != nil {
+			slog.Error("provider query failed",
+				"provider", r.config.ID,
+				"error_type", providerErrorType(resultErr),
+				"latency_ms", time.Since(lookupStartedAt).Milliseconds(),
+			)
+		}
+	}()
 	select {
 	case r.semaphore <- struct{}{}:
 		defer func() { <-r.semaphore }()
@@ -269,6 +280,8 @@ func normalizeProviderError(err error) error {
 	switch {
 	case err == nil:
 		return nil
+	case errors.Is(err, errInvalidProviderResponse):
+		return fmt.Errorf("%w: %w", domain.ErrUpstreamUnavailable, err)
 	case errors.Is(err, context.Canceled):
 		return context.Canceled
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, domain.ErrUpstreamTimeout):
@@ -277,6 +290,21 @@ func normalizeProviderError(err error) error {
 		return err
 	default:
 		return fmt.Errorf("%w: %v", domain.ErrUpstreamUnavailable, err)
+	}
+}
+
+func providerErrorType(err error) string {
+	switch {
+	case errors.Is(err, errInvalidProviderResponse):
+		return "parse_error"
+	case errors.Is(err, domain.ErrRateLimited):
+		return "rate_limited"
+	case errors.Is(err, domain.ErrUpstreamTimeout), errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	default:
+		return "upstream_unavailable"
 	}
 }
 

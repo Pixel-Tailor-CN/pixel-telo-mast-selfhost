@@ -1,8 +1,11 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -84,6 +87,35 @@ func TestSourceRuntimeLimitsConcurrency(t *testing.T) {
 	wg.Wait()
 	if got := maximum.Load(); got > 2 {
 		t.Fatalf("maximum concurrency = %d", got)
+	}
+}
+
+func TestSourceRuntimeLogsSafeFailureClassification(t *testing.T) {
+	const phone = "13800138000"
+	const upstreamBody = "private upstream response"
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	previousLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(previousLogger)
+	runtime := newSourceRuntime(SourceConfig{ID: "test", MaxConcurrent: 1}, lookupFunc(func(context.Context, string) (*port.ProviderResult, error) {
+		return nil, invalidProviderResponse(errors.New(upstreamBody))
+	}), port.NoopMetrics{})
+
+	_, err := runtime.lookup(context.Background(), phone)
+	if err == nil {
+		t.Fatal("expected provider error")
+	}
+	message := logs.String()
+	for _, expected := range []string{`"msg":"provider query failed"`, `"provider":"test"`, `"error_type":"parse_error"`} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("log %q does not contain %q", message, expected)
+		}
+	}
+	for _, sensitive := range []string{phone, upstreamBody} {
+		if strings.Contains(message, sensitive) {
+			t.Fatalf("log contains sensitive value %q: %s", sensitive, message)
+		}
 	}
 }
 
