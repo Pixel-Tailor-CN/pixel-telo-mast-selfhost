@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,6 +93,50 @@ func TestComposeRegistersSharedRoutesWithoutPairing(t *testing.T) {
 	sources := serve(composition.Router, http.MethodGet, "/api/v2/sources", "", true, token)
 	if sources.Code != http.StatusOK {
 		t.Fatalf("sources status = %d, body = %s", sources.Code, sources.Body.String())
+	}
+}
+
+func TestComposeUsesInjectedLoggerForProviderAndFinalFailure(t *testing.T) {
+	const phone = "13800138000"
+	const upstreamBody = "private upstream response"
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	token := bytes.Repeat([]byte("t"), 32)
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+		}, nil
+	})}
+	composition, err := compose(CompositionOptions{
+		Repository:      stubRepository{},
+		ProviderSources: []provider.SourceConfig{{ID: "360"}},
+		QueryOptions:    service.Options{DefaultSources: []string{"360"}},
+		Token:           token,
+		Capabilities:    []string{"query_v2"},
+		Logger:          logger,
+		HTTPClient:      client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = composition.Query.Close() })
+
+	recorder := serve(composition.Router, http.MethodPost, "/api/v2/query", `{"number":"`+phone+`","sources":["360"]}`, true, token)
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	message := logs.String()
+	for _, expected := range []string{`"msg":"provider query failed"`, `"provider":"360"`, `"error_type":"parse_error"`, `"msg":"query failed"`} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("log %q does not contain %q", message, expected)
+		}
+	}
+	for _, sensitive := range []string{phone, upstreamBody, string(token)} {
+		if strings.Contains(message, sensitive) {
+			t.Fatalf("log contains sensitive value %q: %s", sensitive, message)
+		}
 	}
 }
 

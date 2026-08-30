@@ -44,6 +44,11 @@ var _ port.ProviderDispatcher = (*Dispatcher)(nil)
 
 // NewDispatcher 只创建配置中显式列出的公开 Provider。
 func NewDispatcher(config Config) (*Dispatcher, error) {
+	return NewDispatcherWithLogger(config, slog.Default())
+}
+
+// NewDispatcherWithLogger 创建使用指定结构化日志器的 Dispatcher。
+func NewDispatcherWithLogger(config Config, logger *slog.Logger) (*Dispatcher, error) {
 	if len(config.Sources) == 0 {
 		return nil, errors.New("at least one provider source is required")
 	}
@@ -54,6 +59,9 @@ func NewDispatcher(config Config) (*Dispatcher, error) {
 	metrics := config.Metrics
 	if metrics == nil {
 		metrics = port.NoopMetrics{}
+	}
+	if logger == nil {
+		logger = slog.Default()
 	}
 
 	sources := make(map[string]*sourceRuntime, len(config.Sources))
@@ -78,7 +86,7 @@ func NewDispatcher(config Config) (*Dispatcher, error) {
 		if sourceConfig.BreakerTimeout <= 0 {
 			sourceConfig.BreakerTimeout = defaultBreakerTimeout
 		}
-		sources[sourceConfig.ID] = newSourceRuntime(sourceConfig, provider, metrics)
+		sources[sourceConfig.ID] = newSourceRuntimeWithLogger(sourceConfig, provider, metrics, logger)
 	}
 	return &Dispatcher{sources: sources}, nil
 }
@@ -139,6 +147,7 @@ type sourceRuntime struct {
 	config    SourceConfig
 	provider  lookupProvider
 	metrics   port.Metrics
+	logger    *slog.Logger
 	semaphore chan struct{}
 
 	scheduleMu sync.Mutex
@@ -153,10 +162,18 @@ type sourceRuntime struct {
 }
 
 func newSourceRuntime(config SourceConfig, provider lookupProvider, metrics port.Metrics) *sourceRuntime {
+	return newSourceRuntimeWithLogger(config, provider, metrics, slog.Default())
+}
+
+func newSourceRuntimeWithLogger(config SourceConfig, provider lookupProvider, metrics port.Metrics, logger *slog.Logger) *sourceRuntime {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &sourceRuntime{
 		config:    config,
 		provider:  provider,
 		metrics:   metrics,
+		logger:    logger,
 		semaphore: make(chan struct{}, config.MaxConcurrent),
 	}
 }
@@ -165,7 +182,7 @@ func (r *sourceRuntime) lookup(ctx context.Context, phone string) (_ *port.Provi
 	lookupStartedAt := time.Now()
 	defer func() {
 		if resultErr != nil {
-			slog.Error("provider query failed",
+			r.logger.Error("provider query failed",
 				"provider", r.config.ID,
 				"error_type", providerErrorType(resultErr),
 				"latency_ms", time.Since(lookupStartedAt).Milliseconds(),

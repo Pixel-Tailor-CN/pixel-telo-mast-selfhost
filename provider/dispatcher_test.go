@@ -95,12 +95,9 @@ func TestSourceRuntimeLogsSafeFailureClassification(t *testing.T) {
 	const upstreamBody = "private upstream response"
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	previousLogger := slog.Default()
-	slog.SetDefault(logger)
-	defer slog.SetDefault(previousLogger)
-	runtime := newSourceRuntime(SourceConfig{ID: "test", MaxConcurrent: 1}, lookupFunc(func(context.Context, string) (*port.ProviderResult, error) {
+	runtime := newSourceRuntimeWithLogger(SourceConfig{ID: "test", MaxConcurrent: 1}, lookupFunc(func(context.Context, string) (*port.ProviderResult, error) {
 		return nil, invalidProviderResponse(errors.New(upstreamBody))
-	}), port.NoopMetrics{})
+	}), port.NoopMetrics{}, logger)
 
 	_, err := runtime.lookup(context.Background(), phone)
 	if err == nil {
@@ -116,6 +113,28 @@ func TestSourceRuntimeLogsSafeFailureClassification(t *testing.T) {
 		if strings.Contains(message, sensitive) {
 			t.Fatalf("log contains sensitive value %q: %s", sensitive, message)
 		}
+	}
+}
+
+func TestProviderErrorType(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "parse", err: invalidProviderResponse(errors.New("invalid")), want: "parse_error"},
+		{name: "rate limited", err: domain.ErrRateLimited, want: "rate_limited"},
+		{name: "timeout", err: domain.ErrUpstreamTimeout, want: "timeout"},
+		{name: "deadline", err: context.DeadlineExceeded, want: "timeout"},
+		{name: "canceled", err: context.Canceled, want: "canceled"},
+		{name: "unavailable", err: domain.ErrUpstreamUnavailable, want: "upstream_unavailable"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := providerErrorType(test.err); got != test.want {
+				t.Fatalf("providerErrorType(%v) = %q, want %q", test.err, got, test.want)
+			}
+		})
 	}
 }
 

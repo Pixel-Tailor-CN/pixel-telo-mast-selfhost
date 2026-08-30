@@ -51,7 +51,7 @@ func compose(options CompositionOptions) (*Composition, error) {
 	if err != nil {
 		return nil, err
 	}
-	dispatcher, err := provider.NewDispatcher(provider.Config{Sources: options.ProviderSources, HTTPClient: options.HTTPClient})
+	dispatcher, err := provider.NewDispatcherWithLogger(provider.Config{Sources: options.ProviderSources, HTTPClient: options.HTTPClient}, options.Logger)
 	if err != nil {
 		return nil, err
 	}
