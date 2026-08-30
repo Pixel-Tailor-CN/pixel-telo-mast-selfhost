@@ -65,7 +65,7 @@ func TestVercelRouterServesHealthInfoSourcesAndQuery(t *testing.T) {
 	if err := json.Unmarshal(info.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Version != "vercel-version" || payload.InstanceID != "vercel-instance" || payload.BuildCommit != "vercel-commit" {
+	if payload.Version != "v0.0.0" || payload.InstanceID != "vercel-instance" || payload.BuildCommit != "vercel-commit" {
 		t.Fatalf("info identity = %#v", payload)
 	}
 	if len(payload.Capabilities) != 1 || payload.Capabilities[0] != "query_v2" {

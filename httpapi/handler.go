@@ -3,6 +3,8 @@ package httpapi
 import (
 	"log/slog"
 	"net/http"
+	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/internal/security"
@@ -12,7 +14,10 @@ import (
 	"github.com/google/uuid"
 )
 
-var embeddedPhoneFinder = phone.NewFinder()
+var (
+	embeddedPhoneFinder    = phone.NewFinder()
+	appFacingVersionRegexp = regexp.MustCompile(`(?i)^v?((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))(?:[-+].*)?$`)
+)
 
 type Handler struct {
 	Service      *service.Service
@@ -37,15 +42,25 @@ func (h *Handler) Register(router *gin.Engine) {
 	if !h.DisablePairing {
 		router.GET("/p/:code", h.pairingPage)
 	}
-	authenticated := router.Group("/api", h.Headers.Middleware(), security.Bearer(h.Token))
+	appHeaders := h.Headers
+	appHeaders.Version = appFacingVersion(appHeaders.Version)
+	authenticated := router.Group("/api", appHeaders.Middleware(), security.Bearer(h.Token))
 	authenticated.GET("/selfhost/v1/info", h.info)
 	authenticated.GET("/v2/sources", h.sources)
 	queries := authenticated.Group("", h.Limiter.Middleware())
 	queries.POST("/v2/query", h.queryV2)
 }
 
+func appFacingVersion(version string) string {
+	matches := appFacingVersionRegexp.FindStringSubmatch(strings.TrimSpace(version))
+	if len(matches) != 2 {
+		return "v0.0.0"
+	}
+	return "v" + matches[1]
+}
+
 func (h *Handler) info(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"service": "pixel-telo-mast-selfhost", "version": h.Headers.Version, "api_version": 2, "instance_id": h.Headers.InstanceID, "build_commit": h.BuildCommit, "capabilities": h.Capabilities})
+	c.JSON(http.StatusOK, gin.H{"service": "pixel-telo-mast-selfhost", "version": appFacingVersion(h.Headers.Version), "api_version": 2, "instance_id": h.Headers.InstanceID, "build_commit": h.BuildCommit, "capabilities": h.Capabilities})
 }
 
 func (h *Handler) sources(c *gin.Context) { c.JSON(http.StatusOK, h.Service.ListSources()) }

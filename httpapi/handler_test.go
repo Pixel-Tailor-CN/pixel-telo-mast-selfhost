@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	stdhtml "html"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -48,6 +49,61 @@ func testHandler(t *testing.T) *Handler {
 	}
 	t.Cleanup(func() { _ = svc.Close() })
 	return &Handler{Service: svc, Token: bytes.Repeat([]byte("t"), 32), Headers: security.ServerHeaders{Version: "1.0.0", APIVersion: "2", InstanceID: "test"}}
+}
+
+func TestAppFacingVersionIsStrictSemverWhileHomeKeepsBuildVersion(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := testHandler(t)
+	handler.Headers.Version = "0.2.1-dev+abcdef0"
+	router := gin.New()
+	handler.Register(router)
+
+	homeRequest := httptest.NewRequest(http.MethodGet, "/", nil)
+	homeRecorder := httptest.NewRecorder()
+	router.ServeHTTP(homeRecorder, homeRequest)
+	if !strings.Contains(stdhtml.UnescapeString(homeRecorder.Body.String()), "v0.2.1-dev+abcdef0") {
+		t.Fatalf("home body does not keep build version: %s", homeRecorder.Body.String())
+	}
+
+	infoRequest := httptest.NewRequest(http.MethodGet, "/api/selfhost/v1/info", nil)
+	infoRequest.Header.Set("Authorization", "Bearer "+string(handler.Token))
+	infoRecorder := httptest.NewRecorder()
+	router.ServeHTTP(infoRecorder, infoRequest)
+	if infoRecorder.Code != http.StatusOK {
+		t.Fatalf("info status = %d, body = %s", infoRecorder.Code, infoRecorder.Body.String())
+	}
+	var payload struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(infoRecorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Version != "v0.2.1" {
+		t.Fatalf("info version = %q", payload.Version)
+	}
+	if got := infoRecorder.Header().Get("X-Pixel-Telo-Server-Version"); got != "v0.2.1" {
+		t.Fatalf("server version header = %q", got)
+	}
+}
+
+func TestAppFacingVersionNormalization(t *testing.T) {
+	tests := map[string]string{
+		"1.2.3":             "v1.2.3",
+		"v1.2.3":            "v1.2.3",
+		"1.2.3-dev+abcdef0": "v1.2.3",
+		"v1.2.3+build":      "v1.2.3",
+		"dev+abcdef0":       "v0.0.0",
+		"unknown":           "v0.0.0",
+		"1.2":               "v0.0.0",
+		"01.2.3":            "v0.0.0",
+	}
+	for input, want := range tests {
+		t.Run(input, func(t *testing.T) {
+			if got := appFacingVersion(input); got != want {
+				t.Fatalf("appFacingVersion(%q) = %q, want %q", input, got, want)
+			}
+		})
+	}
 }
 
 func TestSelfHostRouteSetExcludesFeedbackAndMetrics(t *testing.T) {
