@@ -21,7 +21,10 @@ const (
 	so360UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
-var so360BlockedPattern = regexp.MustCompile(`(?i)(访问过于频繁|访问频繁|安全验证|验证码|captcha|antispider)`)
+var (
+	so360BlockedPattern = regexp.MustCompile(`(?i)(访问过于频繁|访问频繁|安全验证|验证码|captcha|antispider)`)
+	errSo360NoPhoneData = errors.New("so360 returned no phone data")
+)
 
 type so360Provider struct {
 	client *http.Client
@@ -54,6 +57,9 @@ func (p *so360Provider) Lookup(ctx context.Context, phone string) (*port.Provide
 	}
 
 	label, err := parseSo360Response(body, phone)
+	if errors.Is(err, errSo360NoPhoneData) {
+		return nil, fmt.Errorf("%w: %w", domain.ErrUpstreamUnavailable, err)
+	}
 	if err != nil {
 		return nil, invalidProviderResponse(err)
 	}
@@ -80,6 +86,11 @@ func parseSo360Response(body []byte, phone string) (string, error) {
 	payload, err := unwrapSo360JSONP(body)
 	if err != nil {
 		return "", err
+	}
+	// OneBox 未提供号码数据时可能返回空字符串；这不代表号码未被标记。
+	switch string(payload) {
+	case "''", `""`, "null":
+		return "", errSo360NoPhoneData
 	}
 	var response so360Response
 	if err := json.Unmarshal(payload, &response); err != nil {
