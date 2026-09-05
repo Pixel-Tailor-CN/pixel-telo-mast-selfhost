@@ -26,7 +26,7 @@ func TestSogouChallengeRedirectStopsAndCoolsDown(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for i := 0; i < 2; i++ {
+			for range 2 {
 				results, failures := d.LookupAll(context.Background(), "13800138000", []string{SogouSourceID})
 				var limited *domain.RateLimitError
 				if len(results) != 0 || !errors.As(failures[SogouSourceID], &limited) || limited.RetryAfter <= 0 {
