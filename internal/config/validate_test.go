@@ -77,6 +77,7 @@ providers:
     min_interval: "1s"
     max_concurrent: 2
     breaker_timeout: "45s"
+    proxy_url: "http://127.0.0.1:8080"
 `
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
@@ -86,11 +87,22 @@ providers:
 		t.Fatal(err)
 	}
 	settings := cfg.Providers["sogou"]
+	if settings.ProxyURL != "http://127.0.0.1:8080" {
+		t.Fatal("proxy setting lost")
+	}
 	if settings.MinInterval.Std() != time.Second || settings.MaxConcurrent != 2 || settings.BreakerTimeout.Std() != 45*time.Second {
 		t.Fatalf("provider settings = %+v", settings)
 	}
 	if cfg.Log.Level != "info" || cfg.Log.Format != "json" || cfg.Log.Rotation.MaxSizeMB != 100 || cfg.Log.Retention.MaxAge.Std() != 30*24*time.Hour {
 		t.Fatalf("default log config = %+v", cfg.Log)
+	}
+}
+
+func TestValidateRejectsInvalidProviderProxy(t *testing.T) {
+	cfg := validConfig()
+	cfg.Providers = map[string]ProviderConfig{"sogou": {ProxyURL: "http://user:secret@proxy.example/path"}}
+	if err := Validate(cfg); err == nil || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

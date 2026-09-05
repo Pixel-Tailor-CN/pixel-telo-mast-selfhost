@@ -9,6 +9,23 @@ import (
 
 var validVercelToken = strings.Repeat("x", 32)
 
+func TestLoadVercelProviderProxies(t *testing.T) {
+	env := validVercelEnv()
+	env["MAST_SOGOU_PROXY_URL"] = "http://127.0.0.1:8080"
+	env["MAST_360_PROXY_URL"] = "https://proxy.example:443"
+	cfg, err := LoadVercel(getenvFrom(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ProviderProxies["sogou"] != env["MAST_SOGOU_PROXY_URL"] || cfg.ProviderProxies["360"] != env["MAST_360_PROXY_URL"] {
+		t.Fatal("proxy settings lost")
+	}
+	env["MAST_SOGOU_PROXY_URL"] = "http://user:secret@proxy.example/path"
+	if _, err := LoadVercel(getenvFrom(env)); err == nil || strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "MAST_SOGOU_PROXY_URL") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func validVercelEnv() map[string]string {
 	return map[string]string{
 		"DATABASE_URL":      "postgres://postgres@localhost:5432/mast",

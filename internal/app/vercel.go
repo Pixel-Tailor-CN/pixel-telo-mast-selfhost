@@ -74,7 +74,7 @@ func vercelCompositionOptions(cfg *config.VercelConfig, repo port.QueryRepositor
 	}
 	sources := make([]provider.SourceConfig, 0, len(cfg.ProviderIDs))
 	for _, id := range cfg.ProviderIDs {
-		sources = append(sources, provider.SourceConfig{ID: id})
+		sources = append(sources, provider.SourceConfig{ID: id, ProxyURL: cfg.ProviderProxies[id]})
 	}
 	return CompositionOptions{
 		Repository:      repo,

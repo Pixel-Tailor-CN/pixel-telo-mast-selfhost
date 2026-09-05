@@ -4,13 +4,16 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/provider"
 )
 
 // VercelConfig 是 Vercel 部署模式使用的环境配置，不构造完整 YAML Config。
 type VercelConfig struct {
-	DatabaseURL string
-	Token       []byte
-	ProviderIDs []string
+	DatabaseURL     string
+	Token           []byte
+	ProviderIDs     []string
+	ProviderProxies map[string]string
 }
 
 // LoadVercel 从环境变量读取并校验 Vercel 配置。getenv 为 nil 时使用 os.Getenv。
@@ -35,10 +38,21 @@ func LoadVercel(getenv func(string) string) (*VercelConfig, error) {
 		return nil, fmt.Errorf("MAST_PROVIDER_IDS is required")
 	}
 
+	proxies := make(map[string]string)
+	for id, key := range map[string]string{"sogou": "MAST_SOGOU_PROXY_URL", "360": "MAST_360_PROXY_URL"} {
+		raw := strings.TrimSpace(getenv(key))
+		if err := provider.ValidateProxyURL(raw); err != nil {
+			return nil, fmt.Errorf("%s: %w", key, err)
+		}
+		if raw != "" {
+			proxies[id] = raw
+		}
+	}
 	return &VercelConfig{
-		DatabaseURL: databaseURL,
-		Token:       token,
-		ProviderIDs: providerIDs,
+		DatabaseURL:     databaseURL,
+		Token:           token,
+		ProviderIDs:     providerIDs,
+		ProviderProxies: proxies,
 	}, nil
 }
 

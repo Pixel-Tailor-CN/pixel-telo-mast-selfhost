@@ -26,6 +26,7 @@ type SourceConfig struct {
 	MinInterval    time.Duration
 	MaxConcurrent  int
 	BreakerTimeout time.Duration
+	ProxyURL       string
 }
 
 // Config 定义 Dispatcher 的显式 source 列表和可注入依赖。
@@ -73,7 +74,11 @@ func NewDispatcherWithLogger(config Config, logger *slog.Logger) (*Dispatcher, e
 		if _, exists := sources[sourceConfig.ID]; exists {
 			return nil, fmt.Errorf("duplicate provider source: %s", sourceConfig.ID)
 		}
-		provider, err := createProvider(sourceConfig.ID, client)
+		sourceClient, err := clientWithProxy(client, sourceConfig.ProxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("provider %s: %w", sourceConfig.ID, err)
+		}
+		provider, err := createProvider(sourceConfig.ID, sourceClient)
 		if err != nil {
 			return nil, err
 		}

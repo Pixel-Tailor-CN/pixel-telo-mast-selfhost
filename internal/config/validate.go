@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Pixel-Tailor-CN/pixel-telo-mast-selfhost/provider"
 )
 
 const maxLogSizeMB = int64((1<<63)-1) / (1 << 20)
@@ -66,9 +68,12 @@ func Validate(cfg *Config) error {
 	if cfg.Log.Retention.MaxAge.Std() <= 0 || cfg.Log.Retention.MaxBackups <= 0 || cfg.Log.Retention.MaxTotalSizeMB <= 0 || int64(cfg.Log.Retention.MaxTotalSizeMB) > maxLogSizeMB {
 		return fmt.Errorf("log retention limits must be positive")
 	}
-	for id, provider := range cfg.Providers {
-		if provider.MinInterval.Std() < 0 || provider.MaxConcurrent < 0 || provider.BreakerTimeout.Std() < 0 {
+	for id, settings := range cfg.Providers {
+		if settings.MinInterval.Std() < 0 || settings.MaxConcurrent < 0 || settings.BreakerTimeout.Std() < 0 {
 			return fmt.Errorf("provider %q configuration is invalid", id)
+		}
+		if err := provider.ValidateProxyURL(settings.ProxyURL); err != nil {
+			return fmt.Errorf("provider %q: %w", id, err)
 		}
 	}
 	return nil

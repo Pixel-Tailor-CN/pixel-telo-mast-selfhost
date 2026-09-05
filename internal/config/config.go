@@ -26,6 +26,7 @@ type ProviderConfig struct {
 	MinInterval    Duration `yaml:"min_interval"`
 	MaxConcurrent  int      `yaml:"max_concurrent"`
 	BreakerTimeout Duration `yaml:"breaker_timeout"`
+	ProxyURL       string   `yaml:"proxy_url"`
 }
 
 type LogRotationConfig struct {

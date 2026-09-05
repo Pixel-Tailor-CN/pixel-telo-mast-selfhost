@@ -18,6 +18,12 @@ const maxResponseBytes = 256 * 1024
 
 var errInvalidProviderResponse = errors.New("invalid provider response")
 
+// requestFailure 保留错误链用于分类，但不输出含号码或代理凭据的底层请求信息。
+type requestFailure struct{ cause error }
+
+func (e *requestFailure) Error() string { return "provider HTTP request failed" }
+func (e *requestFailure) Unwrap() error { return e.cause }
+
 func invalidProviderResponse(err error) error {
 	return fmt.Errorf("%w: %w", errInvalidProviderResponse, err)
 }
@@ -69,7 +75,7 @@ func doRequest(ctx context.Context, client *http.Client, requestURL string, head
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, 0, nil, fmt.Errorf("execute provider request: %w", err)
+		return nil, 0, nil, &requestFailure{cause: err}
 	}
 	defer resp.Body.Close()
 

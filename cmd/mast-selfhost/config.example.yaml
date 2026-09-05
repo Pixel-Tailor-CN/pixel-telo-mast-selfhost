@@ -27,14 +27,22 @@ upstream:
   # 也可在 init 时重复传入 --provider-id sogou --provider-id 360
   provider_ids: {{.ProviderIDs}}
 # 可按上面的 ID 覆盖调度参数；未配置时使用默认并发 1、间隔 0、熔断 30s。
-# sogou:
-#   min_interval: "1s"
-#   max_concurrent: 1
-#   breaker_timeout: "30s"
-# "360":
-#   min_interval: "1s"
-#   max_concurrent: 1
-#   breaker_timeout: "30s"
+# 需要时用以下示例替换 providers: {}，仅对显式启用的 Provider 生效。
+# providers:
+#   sogou:
+#     min_interval: "1s"
+#     max_concurrent: 1
+#     breaker_timeout: "30s"
+#     proxy_url: "http://127.0.0.1:8080"
+#   "360":
+#     min_interval: "1s"
+#     max_concurrent: 1
+#     breaker_timeout: "30s"
+#     proxy_url: ""
+# proxy_url 留空时默认直连；仅支持 HTTP/HTTPS 固定代理，不读取 HTTPS_PROXY 等环境变量。
+# 可使用 http://用户名:密码@代理地址:端口；代理凭据属于秘密，不得提交到 Git。
+# 代理连接和间隔等待仍计入 query.timeout，不轮换出口或自动重试。
+# 搜狗反爬有有效 Retry-After 时遵守该值，否则立即冷却 30s；冷却与 breaker_timeout 独立。
 providers: {}
 log:
   level: "info"

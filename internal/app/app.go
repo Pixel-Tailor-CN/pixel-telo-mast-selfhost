@@ -156,7 +156,7 @@ func providerSources(cfg *config.Config) []provider.SourceConfig {
 	result := make([]provider.SourceConfig, 0, len(cfg.Upstream.ProviderIDs))
 	for _, id := range cfg.Upstream.ProviderIDs {
 		settings := cfg.Providers[id]
-		result = append(result, provider.SourceConfig{ID: id, MinInterval: settings.MinInterval.Std(), MaxConcurrent: settings.MaxConcurrent, BreakerTimeout: settings.BreakerTimeout.Std()})
+		result = append(result, provider.SourceConfig{ID: id, MinInterval: settings.MinInterval.Std(), MaxConcurrent: settings.MaxConcurrent, BreakerTimeout: settings.BreakerTimeout.Std(), ProxyURL: settings.ProxyURL})
 	}
 	return result
 }
