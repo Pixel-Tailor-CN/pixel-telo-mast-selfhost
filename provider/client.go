@@ -63,6 +63,10 @@ func rateLimitError(headers http.Header, cause error) error {
 }
 
 func doRequest(ctx context.Context, client *http.Client, requestURL string, headers map[string]string) ([]byte, int, http.Header, error) {
+	return doRequestWithLimit(ctx, client, requestURL, headers, maxResponseBytes)
+}
+
+func doRequestWithLimit(ctx context.Context, client *http.Client, requestURL string, headers map[string]string, maxBytes int64) ([]byte, int, http.Header, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return nil, 0, nil, fmt.Errorf("create provider request: %w", err)
@@ -89,11 +93,11 @@ func doRequest(ctx context.Context, client *http.Client, requestURL string, head
 		reader = gzipReader
 	}
 
-	body, err := io.ReadAll(io.LimitReader(reader, maxResponseBytes+1))
+	body, err := io.ReadAll(io.LimitReader(reader, maxBytes+1))
 	if err != nil {
 		return nil, resp.StatusCode, resp.Header.Clone(), fmt.Errorf("read provider response: %w", err)
 	}
-	if len(body) > maxResponseBytes {
+	if int64(len(body)) > maxBytes {
 		return nil, resp.StatusCode, resp.Header.Clone(), errors.New("provider response exceeds size limit")
 	}
 	return body, resp.StatusCode, resp.Header.Clone(), nil

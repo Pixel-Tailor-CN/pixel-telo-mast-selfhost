@@ -18,11 +18,13 @@ import (
 const (
 	sogouEndpoint  = "https://www.sogou.com/web"
 	sogouUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	// 正常搜索页可能超过 256 KiB；保留搜狗专用的解压后大小上限。
+	sogouMaxResponseBytes = 1024 * 1024
 )
 
 var (
 	sogouBlockedPattern = regexp.MustCompile(`(?i)(antispider|window\.imgCode|验证码|访问频繁)`)
-	sogouPhonePattern   = regexp.MustCompile(`[0-9]+`)
+	sogouPhonePattern   = regexp.MustCompile(`[0-9]+(?:-[0-9]+)*`)
 )
 
 type sogouProvider struct {
@@ -66,10 +68,10 @@ func sogouRateLimitError(headers http.Header) error {
 func (p *sogouProvider) Lookup(ctx context.Context, phone string) (*port.ProviderResult, error) {
 	values := url.Values{}
 	values.Set("query", phone)
-	body, status, headers, err := doRequest(ctx, p.client, sogouEndpoint+"?"+values.Encode(), map[string]string{
+	body, status, headers, err := doRequestWithLimit(ctx, p.client, sogouEndpoint+"?"+values.Encode(), map[string]string{
 		"Referer":    "https://www.sogou.com/",
 		"User-Agent": sogouUserAgent,
-	})
+	}, sogouMaxResponseBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +123,8 @@ func parseSogouCard(body []byte, phone string) (string, error) {
 		}
 		phoneMatched := false
 		for _, number := range sogouPhonePattern.FindAllString(nodeText(container), -1) {
-			if number == expectedDigits {
+			// 只移除单个号码中的连字符，不拼接容器内其他数字块。
+			if digitsOnly(number) == expectedDigits {
 				phoneMatched = true
 				break
 			}
